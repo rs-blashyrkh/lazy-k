@@ -1,0 +1,670 @@
+// Blashyrkh.maniac.coding
+// BTC:1Maniaccv5vSQVuwrmRtfazhf2WsUJ1KyD DOGE:DManiac9Gk31A4vLw9fLN9jVDFAQZc2zPj
+
+// Copyright (c) 2025-2026 Blashyrkh
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+// THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+// IN THE SOFTWARE.
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <ctype.h>
+
+
+enum Opcodes
+{
+    OP_APPLY,
+    OP_I,
+    OP_K,
+    OP_K1,
+    OP_S,
+    OP_S1,
+    OP_S2,
+    OP_B,
+    OP_B1,
+    OP_B2,
+    OP_C,
+    OP_C1,
+    OP_C2,
+    OP_INPUT,
+    OP_OUTPUT,
+    OP_ATOM_X,
+    OP_ATOM_Y
+};
+
+struct Node
+{
+    struct Node   *hash_next;
+    struct Node   *left;
+    struct Node   *right;
+    unsigned int   opcode:8;
+    unsigned int   mark:1;
+    unsigned int   immortal:1;
+};
+
+struct ProtectedNode
+{
+    struct ProtectedNode *next;
+    struct Node          *node;
+};
+
+// TODO: grow on demand
+#ifndef BUCKETS
+# define BUCKETS 65537
+#endif
+
+#ifndef GC_EVERY
+# define GC_EVERY 25000
+#endif
+
+// Global variables
+// {
+static struct Node *bucket_heads[BUCKETS]={NULL};
+static struct ProtectedNode *protected_nodes=NULL;
+// TODO: use +1 and *2 (and probably a^b and a^a) ops
+static struct Node *numeral[257];
+// }
+
+static void dump_node(const struct Node *n, FILE *f);
+static void dump_node_prompt(const char *prompt, const struct Node *n, FILE *f);
+static void reduce(struct Node *expr);
+
+static void mark_node(struct Node *node)
+{
+    if(node && !node->mark)
+    {
+        node->mark=1;
+        mark_node(node->left);
+        mark_node(node->right);
+    }
+}
+
+static void gc(void)
+{
+    // Mark all protected nodes and all their subtrees
+    for(struct ProtectedNode *p=protected_nodes; p!=NULL; p=p->next)
+        mark_node(p->node);
+
+    unsigned int freed=0;
+    unsigned int kept=0;
+    // Unhash and free all unmarked nodes, unmark all marked nodes
+    for(unsigned int bucket=0; bucket<BUCKETS; ++bucket)
+    {
+        struct Node **pp=bucket_heads+bucket;
+        while((*pp)!=NULL)
+        {
+            struct Node *p=*pp;
+            if(p->mark || p->immortal)
+            {
+                p->mark=0;
+                pp=&p->hash_next;
+                ++kept;
+            }
+            else
+            {
+                *pp=p->hash_next;
+                free(p);
+                ++freed;
+            }
+        }
+    }
+    //fprintf(stderr, "GC: %u freed, %u kept\n", freed, kept);
+}
+
+static inline unsigned int find_bucket(struct Node *left, struct Node *right, unsigned int opcode)
+{
+    unsigned int hash=2235019355U+opcode;
+    hash=((hash<<13)+hash+(unsigned int)(intptr_t)left)^(hash>>19);
+    hash=((hash<<13)+hash+(unsigned int)(intptr_t)right)^(hash>>19);
+//    hash=((hash<<13)+hash+opcode)^(hash>>19);
+
+    return hash%BUCKETS;
+}
+
+static inline struct Node *new_node(struct Node *left, struct Node *right, unsigned int opcode)
+{
+    const unsigned int bucket=find_bucket(left, right, opcode);
+    struct Node *p=bucket_heads[bucket];
+    while(p)
+    {
+        if(p->left==left && p->right==right && p->opcode==opcode)
+            return p;
+        p=p->hash_next;
+    }
+
+    p=(struct Node *)malloc(sizeof(struct Node));
+    p->hash_next=bucket_heads[bucket];
+    p->left=left;
+    p->right=right;
+    p->opcode=opcode;
+    p->mark=0;
+    p->immortal=0;
+    bucket_heads[bucket]=p;
+
+    return p;
+}
+
+static inline void unhash_node(struct Node *node)
+{
+    const unsigned int bucket=find_bucket(node->left, node->right, node->opcode);
+    struct Node **p=bucket_heads+bucket;
+    while(*p && *p!=node)
+        p=&(*p)->hash_next;
+    if(*p==node)
+    {
+        *p=node->hash_next;
+        node->hash_next=NULL;
+    }
+}
+
+static inline void hash_node(struct Node *node)
+{
+    const unsigned int bucket=find_bucket(node->left, node->right, node->opcode);
+    node->hash_next=bucket_heads[bucket];
+    bucket_heads[bucket]=node;
+}
+
+static inline void replace_node_components(
+    struct Node   *node,
+    struct Node   *left,
+    struct Node   *right,
+    unsigned int   opcode)
+{
+    unhash_node(node);
+    node->left=left;
+    node->right=right;
+    node->opcode=opcode;
+    hash_node(node);
+}
+
+static inline void replace_node(
+    struct Node   *node,
+    struct Node   *orig)
+{
+    replace_node_components(node, orig->left, orig->right, orig->opcode);
+}
+
+static inline struct Node *new_application(struct Node *left, struct Node *right)
+{
+    return new_node(left, right, OP_APPLY);
+}
+
+static inline struct Node *new_combinator(char ch)
+{
+    ch=tolower(ch);
+    if(ch=='i')
+        return new_node(NULL, NULL, OP_I);
+    else if(ch=='k')
+        return new_node(NULL, NULL, OP_K);
+    else if(ch=='s')
+        return new_node(NULL, NULL, OP_S);
+    else if(ch=='b')
+        return new_node(NULL, NULL, OP_B);
+    else if(ch=='c')
+        return new_node(NULL, NULL, OP_C);
+    else
+        return NULL;
+}
+
+static inline struct Node *new_input_source(void)
+{
+    return new_node(NULL, NULL, OP_INPUT);
+}
+
+static inline struct Node *new_output_sink(void)
+{
+    return new_node(NULL, NULL, OP_OUTPUT);
+}
+
+static inline struct Node *new_atom_X(void)
+{
+    return new_node(NULL, NULL, OP_ATOM_X);
+}
+
+static inline struct Node *new_atom_Y(void)
+{
+    return new_node(NULL, NULL, OP_ATOM_Y);
+}
+
+
+// TODO: make input resolution two-step:
+// - OP_INPUT_CONT - is replaced by lambda f . f OP_INPUT_CHAR OP_INPUT_CONT (or C((CI)OP_INPUT_CHAR)OP_INPUT_CONT)
+// - OP_INPUT_CHAR - is replaced by Church encoding of entered character
+// This would provide maximum input laziness. In current implementation my quine requires
+// any input (getc() is called) to proceed (though its reduction doesn't depend on entered character)
+static void resolve_inputs(void)
+{
+    // There may be several OP_INPUT nodes. We try to avoid it, but new nodes may appear anyway
+    // as a result of reducing I<INPUT> or K<INPUT>x (remember that reduce is always performed
+    // in-place, so in case of I<INPUT> the I node becomes a copy of the <INPUT> but retains its
+    // address in memory). That's why we have to find ALL input nodes and replace them with
+    // combinator expression representing next entered character (as well as continuation in
+    // a form of new INPUT node)
+
+    struct Node *input_nodes=NULL;
+
+    const unsigned int bucket=find_bucket(NULL, NULL, OP_INPUT);
+    struct Node **pp=bucket_heads+bucket;
+    while(*pp!=NULL)
+    {
+        struct Node *p=*pp;
+        if(p->opcode==OP_INPUT)
+        {
+            *pp=p->hash_next;
+            p->hash_next=input_nodes;
+            input_nodes=p;
+        }
+        else
+        {
+            pp=&p->hash_next;
+        }
+    }
+
+    // Now all INPUT nodes are removed from hashtable bucket and chained into one list
+    // which head is stored in input_nodes
+
+    if(!input_nodes)
+        return;
+
+    int code=fgetc(stdin);
+    if(code<0 || code>255)
+        code=256;
+
+    struct Node *node=input_nodes;
+    while(node)
+    {
+        struct Node *next=node->hash_next;
+
+        node->opcode=OP_APPLY;
+        node->left=new_application(
+            new_combinator('c'),
+            new_application(
+                new_application(
+                    new_combinator('c'),
+                    new_combinator('i')),
+                numeral[code]));
+        node->right=new_input_source();
+
+        // Rehash node again. It now contains Church presentation of ascii code of entered character
+        // and new input source node
+
+        hash_node(node);
+
+        node=next;
+    }
+}
+
+static void dump_node(const struct Node *n, FILE *f)
+{
+    if(n->opcode==OP_APPLY)
+    {
+        fputc('`', f);
+        dump_node(n->left, f);
+        dump_node(n->right, f);
+    }
+    else if(n->opcode==OP_I)
+    {
+        fputc('i', f);
+    }
+    else if(n->opcode==OP_K)
+    {
+        fputc('k', f);
+    }
+    else if(n->opcode==OP_K1)
+    {
+        fprintf(f, "[`k");
+        dump_node(n->left, f);
+        fputc(']', f);
+    }
+    else if(n->opcode==OP_S)
+    {
+        fputc('s', f);
+    }
+    else if(n->opcode==OP_S1)
+    {
+        fprintf(f, "[`s");
+        dump_node(n->left, f);
+        fputc(']', f);
+    }
+    else if(n->opcode==OP_S2)
+    {
+        fprintf(f, "[``s");
+        dump_node(n->left, f);
+        dump_node(n->right, f);
+        fputc(']', f);
+    }
+    else if(n->opcode==OP_B)
+    {
+        fputc('b', f);
+    }
+    else if(n->opcode==OP_B1)
+    {
+        fprintf(f, "[`b");
+        dump_node(n->left, f);
+        fputc(']', f);
+    }
+    else if(n->opcode==OP_B2)
+    {
+        fprintf(f, "[``b");
+        dump_node(n->left, f);
+        dump_node(n->right, f);
+        fputc(']', f);
+    }
+    else if(n->opcode==OP_C)
+    {
+        fputc('c', f);
+    }
+    else if(n->opcode==OP_C1)
+    {
+        fprintf(f, "[`c");
+        dump_node(n->left, f);
+        fputc(']', f);
+    }
+    else if(n->opcode==OP_C2)
+    {
+        fprintf(f, "[``c");
+        dump_node(n->left, f);
+        dump_node(n->right, f);
+        fputc(']', f);
+    }
+    else if(n->opcode==OP_INPUT)
+    {
+        fprintf(f, "<INPUT SOURCE>");
+    }
+    else if(n->opcode==OP_OUTPUT)
+    {
+        fprintf(f, "<OUTPUT SINK>");
+    }
+    else if(n->opcode==OP_ATOM_X)
+    {
+        fputc('X', f);
+    }
+    else if(n->opcode==OP_ATOM_Y)
+    {
+        fputc('Y', f);
+    }
+}
+
+static void dump_node_prompt(const char *prompt, const struct Node *n, FILE *f)
+{
+    fprintf(f, "%s", prompt);
+    dump_node(n, f);
+    fputc('\n', f);
+}
+
+
+// TODO: return parsing error info (line, col, message)
+static struct Node *parse_file(FILE *f)
+{
+    unsigned int line=1;
+    unsigned int col=0;
+    int ignore_rest_of_line=0;
+
+    unsigned int op_stack_size=0;
+    unsigned int op_stack_cap=0;
+    struct Node **op_stack=NULL;
+
+    unsigned int n_stack_size=0;
+    unsigned int n_stack_cap=10;
+    unsigned int *n_stack=(unsigned int *)malloc(n_stack_cap*sizeof(unsigned int));
+    n_stack[n_stack_size++]=0;
+
+    int ch;
+    while((ch=fgetc(f))!=EOF)
+    {
+        if(ch=='\n')
+        {
+            ++line;
+            col=0;
+            ignore_rest_of_line=0;
+            continue;
+        }
+
+        ++col;
+        if(ignore_rest_of_line)
+            continue;
+
+        if(ch=='#')
+            ignore_rest_of_line=1;
+        else if(ch=='`')
+        {
+            if(n_stack_size>=n_stack_cap)
+            {
+                n_stack_cap+=10;
+                n_stack=(unsigned int *)realloc(n_stack, n_stack_cap*sizeof(unsigned int));
+                if(!n_stack)
+                    abort();
+            }
+            n_stack[n_stack_size++]=0;
+        }
+        else if(ch=='i' || ch=='k' || ch=='s' || ch=='b' || ch=='c') // extended Lazy K - B and C combinators are added
+        {
+            if(op_stack_size>=op_stack_cap)
+            {
+                op_stack_cap+=20;
+                op_stack=(struct Node **)realloc(op_stack, op_stack_cap*sizeof(struct Node *));
+                if(!op_stack)
+                    abort();
+            }
+            op_stack[op_stack_size++]=new_combinator(ch);
+            ++n_stack[n_stack_size-1];
+
+            while(n_stack_size>0 && n_stack[n_stack_size-1]==2)
+            {
+                struct Node *a=new_application(op_stack[op_stack_size-2], op_stack[op_stack_size-1]);
+                --n_stack_size;
+                ++n_stack[n_stack_size-1];
+                --op_stack_size;
+                op_stack[op_stack_size-1]=a;
+            }
+        }
+    }
+    // TODO: checks
+
+    struct Node *res=NULL;
+    if(op_stack_size==1)
+        res=op_stack[0];
+
+    free(op_stack);
+    free(n_stack);
+
+    return res;
+}
+
+static void reduce(struct Node *p)
+{
+    // If the expression's root node is not Application then there's nothing we can do
+    // to reduce it
+    if(p->opcode!=OP_APPLY)
+        return;
+
+    // Protect root node (and, hence, all the tree) from GC
+    struct ProtectedNode prot;
+    prot.next=protected_nodes;
+    prot.node=p;
+    protected_nodes=&prot;
+
+    unsigned int stack_size=0;
+    unsigned int stack_cap=0;
+    struct Node **stack=NULL;
+
+    int applies=0;
+    while(p->opcode==OP_APPLY || stack_size>0)
+    {
+        if(p->opcode==OP_APPLY)
+        {
+            if(p->left->opcode==OP_APPLY)
+            {
+                if(stack_size==stack_cap)
+                {
+                    stack_cap+=100;
+                    stack=(struct Node **)realloc(stack, stack_cap*sizeof(struct Node *));
+                    if(!stack)
+                        abort();
+                }
+                stack[stack_size++]=p;
+                p=p->left;
+            }
+            else if(p->left->opcode==OP_I)
+            {
+                replace_node(p, p->right);
+            }
+            else if(p->left->opcode==OP_K)
+            {
+                replace_node_components(p, p->right, NULL, OP_K1);
+            }
+            else if(p->left->opcode==OP_K1)
+            {
+                replace_node(p, p->left->left);
+            }
+            else if(p->left->opcode==OP_S)
+            {
+                replace_node_components(p, p->right, NULL, OP_S1);
+            }
+            else if(p->left->opcode==OP_S1)
+            {
+                replace_node_components(p, p->left->left, p->right, OP_S2);
+            }
+            else if(p->left->opcode==OP_S2)
+            {
+                replace_node_components(p, new_application(p->left->left, p->right), new_application(p->left->right, p->right), OP_APPLY);
+            }
+            else if(p->left->opcode==OP_B)
+            {
+                replace_node_components(p, p->right, NULL, OP_B1);
+            }
+            else if(p->left->opcode==OP_B1)
+            {
+                replace_node_components(p, p->left->left, p->right, OP_B2);
+            }
+            else if(p->left->opcode==OP_B2)
+            {
+                replace_node_components(p, p->left->left, new_application(p->left->right, p->right), OP_APPLY);
+            }
+            else if(p->left->opcode==OP_C)
+            {
+                replace_node_components(p, p->right, NULL, OP_C1);
+            }
+            else if(p->left->opcode==OP_C1)
+            {
+                replace_node_components(p, p->left->left, p->right, OP_C2);
+            }
+            else if(p->left->opcode==OP_C2)
+            {
+                replace_node_components(p, new_application(p->left->left, p->right), p->left->right, OP_APPLY);
+            }
+            else if(p->left->opcode==OP_INPUT)
+            {
+                resolve_inputs();
+            }
+            else if(p->left->opcode==OP_OUTPUT)
+            {
+                struct Node *n=new_application(new_application(p->right, new_atom_X()), new_atom_Y());
+                //dump_node_prompt("before: ", n, stderr);
+                reduce(n);
+                //dump_node_prompt("after: ", n, stderr);
+
+                unsigned int code=0;
+                while(n->opcode==OP_APPLY && n->right->opcode==OP_ATOM_X)
+                {
+                    ++code;
+                    n=n->left;
+                }
+                if(n->opcode!=OP_ATOM_Y)
+                    code=256+126;
+
+                if(code<256)
+                {
+                    fputc(code, stdout);
+                    fflush(stdout);
+                }
+                else
+                {
+                    exit(code-256);
+                }
+
+                // Should return CI<OUT> to continue
+                replace_node_components(p, new_application(new_combinator('c'), new_combinator('i')), new_output_sink(), OP_APPLY);
+            }
+            else if(p->left->opcode==OP_ATOM_X)
+            {
+                replace_node_components(p, p->right, p->left, OP_APPLY);
+            }
+            else if(p->left->opcode==OP_ATOM_Y)
+            {
+                break;
+            }
+
+            ++applies;
+            if(applies==GC_EVERY)
+            {
+                gc();
+                applies=0;
+            }
+        }
+        else
+        {
+            p=stack[--stack_size];
+        }
+    }
+
+    protected_nodes=prot.next;
+
+    free(stack);
+}
+
+
+int main(int argc, char *argv[])
+{
+    numeral[0]=new_application(new_combinator('k'), new_combinator('i'));
+    numeral[0]->immortal=1;
+    for(int i=1; i<=256; ++i)
+    {
+        numeral[i]=new_application(new_application(new_combinator('s'), new_combinator('b')), numeral[i-1]);
+        numeral[i]->immortal=1;
+    }
+
+    struct Node *program=new_input_source();
+    for(int i=1; i<argc; ++i)
+    {
+        FILE *f=fopen(argv[i], "rt");
+        if(!f)
+        {
+            perror("Failed to open source file");
+            return 1;
+        }
+
+        struct Node *node=parse_file(f);
+        fclose(f);
+
+        if(!node)
+        {
+            fprintf(stderr, "Failed to parse source file\n");
+            return 1;
+        }
+
+        program=new_application(node, program);
+    }
+
+    program=new_application(program, new_output_sink());
+
+    reduce(program);
+
+    return 126;
+}
