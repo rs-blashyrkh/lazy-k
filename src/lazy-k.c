@@ -42,7 +42,8 @@ enum Opcodes
     OP_C,
     OP_C1,
     OP_C2,
-    OP_INPUT,
+    OP_INPUT_CONT,
+    OP_INPUT_CHAR,
     OP_OUTPUT,
     OP_ATOM_X,
     OP_ATOM_Y
@@ -222,11 +223,6 @@ static inline struct Node *new_combinator(char ch)
         return NULL;
 }
 
-static inline struct Node *new_input_source(void)
-{
-    return new_node(NULL, NULL, OP_INPUT);
-}
-
 static inline struct Node *new_output_sink(void)
 {
     return new_node(NULL, NULL, OP_OUTPUT);
@@ -242,69 +238,69 @@ static inline struct Node *new_atom_Y(void)
     return new_node(NULL, NULL, OP_ATOM_Y);
 }
 
-
-// TODO: make input resolution two-step:
-// - OP_INPUT_CONT - is replaced by lambda f . f OP_INPUT_CHAR OP_INPUT_CONT (or C((CI)OP_INPUT_CHAR)OP_INPUT_CONT)
-// - OP_INPUT_CHAR - is replaced by Church encoding of entered character
-// This would provide maximum input laziness. In current implementation my quine requires
-// any input (getc() is called) to proceed (though its reduction doesn't depend on entered character)
-static void resolve_inputs(void)
+// Find all nodes, remove them from the hash table, chain together into single-linked list
+// and return the head of the list (and in the darkness bind them, of course)
+static struct Node *find_all_nodes(struct Node *left, struct Node *right, unsigned int opcode)
 {
-    // There may be several OP_INPUT nodes. We try to avoid it, but new nodes may appear anyway
-    // as a result of reducing I<INPUT> or K<INPUT>x (remember that reduce is always performed
-    // in-place, so in case of I<INPUT> the I node becomes a copy of the <INPUT> but retains its
-    // address in memory). That's why we have to find ALL input nodes and replace them with
-    // combinator expression representing next entered character (as well as continuation in
-    // a form of new INPUT node)
+    struct Node *res=NULL;
 
-    struct Node *input_nodes=NULL;
-
-    const unsigned int bucket=find_bucket(NULL, NULL, OP_INPUT);
+    const unsigned int bucket=find_bucket(left, right, opcode);
     struct Node **pp=bucket_heads+bucket;
     while(*pp!=NULL)
     {
         struct Node *p=*pp;
-        if(p->opcode==OP_INPUT)
+        if(p->left==left && p->right==right && p->opcode==opcode)
         {
             *pp=p->hash_next;
-            p->hash_next=input_nodes;
-            input_nodes=p;
+            p->hash_next=res;
+            res=p;
         }
         else
         {
             pp=&p->hash_next;
         }
     }
+    return res;
+}
 
-    // Now all INPUT nodes are removed from hashtable bucket and chained into one list
-    // which head is stored in input_nodes
+static void resolve_input_cont(void)
+{
+    struct Node *node=find_all_nodes(NULL, NULL, OP_INPUT_CONT);
+    if(!node)
+        return;
 
-    if(!input_nodes)
+    struct Node *left=new_application(
+        new_combinator('c'),
+        new_application(
+            new_application(
+                new_combinator('c'),
+                new_combinator('i')),
+            new_node(NULL, NULL, OP_INPUT_CHAR)));
+    struct Node *right=new_node(NULL, NULL, OP_INPUT_CONT);
+
+    while(node)
+    {
+        struct Node *next=node->hash_next;
+        replace_node_components(node, left, right, OP_APPLY);
+
+        node=next;
+    }
+}
+
+static void resolve_input_char(void)
+{
+    struct Node *node=find_all_nodes(NULL, NULL, OP_INPUT_CHAR);
+    if(!node)
         return;
 
     int code=fgetc(stdin);
     if(code<0 || code>255)
         code=256;
 
-    struct Node *node=input_nodes;
     while(node)
     {
         struct Node *next=node->hash_next;
-
-        node->opcode=OP_APPLY;
-        node->left=new_application(
-            new_combinator('c'),
-            new_application(
-                new_application(
-                    new_combinator('c'),
-                    new_combinator('i')),
-                numeral[code]));
-        node->right=new_input_source();
-
-        // Rehash node again. It now contains Church presentation of ascii code of entered character
-        // and new input source node
-
-        hash_node(node);
+        replace_node(node, numeral[code]);
 
         node=next;
     }
@@ -383,9 +379,13 @@ static void dump_node(const struct Node *n, FILE *f)
         dump_node(n->right, f);
         fputc(']', f);
     }
-    else if(n->opcode==OP_INPUT)
+    else if(n->opcode==OP_INPUT_CONT)
     {
-        fprintf(f, "<INPUT SOURCE>");
+        fprintf(f, "<INPUT CONTINUATION>");
+    }
+    else if(n->opcode==OP_INPUT_CHAR)
+    {
+        fprintf(f, "<INPUT FGETC>");
     }
     else if(n->opcode==OP_OUTPUT)
     {
@@ -569,9 +569,13 @@ static void reduce(struct Node *p)
             {
                 replace_node_components(p, new_application(p->left->left, p->right), p->left->right, OP_APPLY);
             }
-            else if(p->left->opcode==OP_INPUT)
+            else if(p->left->opcode==OP_INPUT_CONT)
             {
-                resolve_inputs();
+                resolve_input_cont();
+            }
+            else if(p->left->opcode==OP_INPUT_CHAR)
+            {
+                resolve_input_char();
             }
             else if(p->left->opcode==OP_OUTPUT)
             {
@@ -640,7 +644,7 @@ int main(int argc, char *argv[])
         numeral[i]->immortal=1;
     }
 
-    struct Node *program=new_input_source();
+    struct Node *program=new_node(NULL, NULL, OP_INPUT_CONT);
     for(int i=1; i<argc; ++i)
     {
         FILE *f=fopen(argv[i], "rt");
