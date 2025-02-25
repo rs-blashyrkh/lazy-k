@@ -27,34 +27,12 @@
 #include <ctype.h>
 
 
-enum Opcodes
-{
-    OP_APPLY,
-    OP_I,
-    OP_K,
-    OP_K1,
-    OP_S,
-    OP_S1,
-    OP_S2,
-    OP_B,
-    OP_B1,
-    OP_B2,
-    OP_C,
-    OP_C1,
-    OP_C2,
-    OP_INPUT_CONT,
-    OP_INPUT_CHAR,
-    OP_OUTPUT,
-    OP_ATOM_X,
-    OP_ATOM_Y
-};
-
 struct Node
 {
     struct Node   *hash_next;
     struct Node   *left;
     struct Node   *right;
-    unsigned int   opcode:8;
+    int          (*apply)(struct Node *a);
     unsigned int   mark:1;
     unsigned int   immortal:1;
 };
@@ -85,6 +63,25 @@ static struct Node *numeral[257];
 static void dump_node(const struct Node *n, FILE *f);
 static void dump_node_prompt(const char *prompt, const struct Node *n, FILE *f);
 static void reduce(struct Node *expr);
+
+static int apply_I(struct Node *a);
+static int apply_K(struct Node *a);
+static int apply_K1(struct Node *a);
+static int apply_S(struct Node *a);
+static int apply_S1(struct Node *a);
+static int apply_S2(struct Node *a);
+static int apply_B(struct Node *a);
+static int apply_B1(struct Node *a);
+static int apply_B2(struct Node *a);
+static int apply_C(struct Node *a);
+static int apply_C1(struct Node *a);
+static int apply_C2(struct Node *a);
+static int apply_input_cont(struct Node *a);
+static int apply_input_char(struct Node *a);
+static int apply_output(struct Node *a);
+static int apply_atom_X(struct Node *a);
+static int apply_atom_Y(struct Node *a);
+
 
 static void mark_node(struct Node *node)
 {
@@ -128,23 +125,24 @@ static void gc(void)
     //fprintf(stderr, "GC: %u freed, %u kept\n", freed, kept);
 }
 
-static inline unsigned int find_bucket(struct Node *left, struct Node *right, unsigned int opcode)
+static inline unsigned int find_bucket(struct Node *left, struct Node *right, int (*apply)(struct Node *a))
 {
-    unsigned int hash=2235019355U+opcode;
+    unsigned int hash=2235019355U;
     hash=((hash<<13)+hash+(unsigned int)(intptr_t)left)^(hash>>19);
     hash=((hash<<13)+hash+(unsigned int)(intptr_t)right)^(hash>>19);
+    hash=((hash<<13)+hash+(unsigned int)(intptr_t)apply)^(hash>>19);
 //    hash=((hash<<13)+hash+opcode)^(hash>>19);
 
     return hash%BUCKETS;
 }
 
-static inline struct Node *new_node(struct Node *left, struct Node *right, unsigned int opcode)
+static inline struct Node *new_node(struct Node *left, struct Node *right, int (*apply)(struct Node *a))
 {
-    const unsigned int bucket=find_bucket(left, right, opcode);
+    const unsigned int bucket=find_bucket(left, right, apply);
     struct Node *p=bucket_heads[bucket];
     while(p)
     {
-        if(p->left==left && p->right==right && p->opcode==opcode)
+        if(p->left==left && p->right==right && p->apply==apply)
             return p;
         p=p->hash_next;
     }
@@ -153,7 +151,7 @@ static inline struct Node *new_node(struct Node *left, struct Node *right, unsig
     p->hash_next=bucket_heads[bucket];
     p->left=left;
     p->right=right;
-    p->opcode=opcode;
+    p->apply=apply;
     p->mark=0;
     p->immortal=0;
     bucket_heads[bucket]=p;
@@ -163,7 +161,7 @@ static inline struct Node *new_node(struct Node *left, struct Node *right, unsig
 
 static inline void unhash_node(struct Node *node)
 {
-    const unsigned int bucket=find_bucket(node->left, node->right, node->opcode);
+    const unsigned int bucket=find_bucket(node->left, node->right, node->apply);
     struct Node **p=bucket_heads+bucket;
     while(*p && *p!=node)
         p=&(*p)->hash_next;
@@ -176,7 +174,7 @@ static inline void unhash_node(struct Node *node)
 
 static inline void hash_node(struct Node *node)
 {
-    const unsigned int bucket=find_bucket(node->left, node->right, node->opcode);
+    const unsigned int bucket=find_bucket(node->left, node->right, node->apply);
     node->hash_next=bucket_heads[bucket];
     bucket_heads[bucket]=node;
 }
@@ -185,12 +183,12 @@ static inline void replace_node_components(
     struct Node   *node,
     struct Node   *left,
     struct Node   *right,
-    unsigned int   opcode)
+    int          (*apply)(struct Node *a))
 {
     unhash_node(node);
     node->left=left;
     node->right=right;
-    node->opcode=opcode;
+    node->apply=apply;
     hash_node(node);
 }
 
@@ -198,58 +196,60 @@ static inline void replace_node(
     struct Node   *node,
     struct Node   *orig)
 {
-    replace_node_components(node, orig->left, orig->right, orig->opcode);
+    replace_node_components(node, orig->left, orig->right, orig->apply);
 }
+
+
 
 static inline struct Node *new_application(struct Node *left, struct Node *right)
 {
-    return new_node(left, right, OP_APPLY);
+    return new_node(left, right, NULL);
 }
 
 static inline struct Node *new_combinator(char ch)
 {
     ch=tolower(ch);
     if(ch=='i')
-        return new_node(NULL, NULL, OP_I);
+        return new_node(NULL, NULL, apply_I);
     else if(ch=='k')
-        return new_node(NULL, NULL, OP_K);
+        return new_node(NULL, NULL, apply_K);
     else if(ch=='s')
-        return new_node(NULL, NULL, OP_S);
+        return new_node(NULL, NULL, apply_S);
     else if(ch=='b')
-        return new_node(NULL, NULL, OP_B);
+        return new_node(NULL, NULL, apply_B);
     else if(ch=='c')
-        return new_node(NULL, NULL, OP_C);
+        return new_node(NULL, NULL, apply_C);
     else
         return NULL;
 }
 
 static inline struct Node *new_output_sink(void)
 {
-    return new_node(NULL, NULL, OP_OUTPUT);
+    return new_node(NULL, NULL, apply_output);
 }
 
 static inline struct Node *new_atom_X(void)
 {
-    return new_node(NULL, NULL, OP_ATOM_X);
+    return new_node(NULL, NULL, apply_atom_X);
 }
 
 static inline struct Node *new_atom_Y(void)
 {
-    return new_node(NULL, NULL, OP_ATOM_Y);
+    return new_node(NULL, NULL, apply_atom_Y);
 }
 
 // Find all nodes, remove them from the hash table, chain together into single-linked list
 // and return the head of the list (and in the darkness bind them, of course)
-static struct Node *find_all_nodes(struct Node *left, struct Node *right, unsigned int opcode)
+static struct Node *find_all_nodes(struct Node *left, struct Node *right, int (*apply)(struct Node *a))
 {
     struct Node *res=NULL;
 
-    const unsigned int bucket=find_bucket(left, right, opcode);
+    const unsigned int bucket=find_bucket(left, right, apply);
     struct Node **pp=bucket_heads+bucket;
     while(*pp!=NULL)
     {
         struct Node *p=*pp;
-        if(p->left==left && p->right==right && p->opcode==opcode)
+        if(p->left==left && p->right==right && p->apply==apply)
         {
             *pp=p->hash_next;
             p->hash_next=res;
@@ -263,11 +263,83 @@ static struct Node *find_all_nodes(struct Node *left, struct Node *right, unsign
     return res;
 }
 
-static void resolve_input_cont(void)
+static int apply_I(struct Node *a)
 {
-    struct Node *node=find_all_nodes(NULL, NULL, OP_INPUT_CONT);
+    replace_node(a, a->right);
+    return 0;
+}
+
+static int apply_K(struct Node *a)
+{
+    replace_node_components(a, a->right, NULL, apply_K1);
+    return 0;
+}
+
+static int apply_K1(struct Node *a)
+{
+    replace_node(a, a->left->left);
+    return 0;
+}
+
+static int apply_S(struct Node *a)
+{
+    replace_node_components(a, a->right, NULL, apply_S1);
+    return 0;
+}
+
+static int apply_S1(struct Node *a)
+{
+    replace_node_components(a, a->left->left, a->right, apply_S2);
+    return 0;
+}
+
+static int apply_S2(struct Node *a)
+{
+    replace_node_components(a, new_application(a->left->left, a->right), new_application(a->left->right, a->right), NULL);
+    return 0;
+}
+
+static int apply_B(struct Node *a)
+{
+    replace_node_components(a, a->right, NULL, apply_B1);
+    return 0;
+}
+
+static int apply_B1(struct Node *a)
+{
+    replace_node_components(a, a->left->left, a->right, apply_B2);
+    return 0;
+}
+
+static int apply_B2(struct Node *a)
+{
+    replace_node_components(a, a->left->left, new_application(a->left->right, a->right), NULL);
+    return 0;
+}
+
+static int apply_C(struct Node *a)
+{
+    replace_node_components(a, a->right, NULL, apply_C1);
+    return 0;
+}
+
+static int apply_C1(struct Node *a)
+{
+    replace_node_components(a, a->left->left, a->right, apply_C2);
+    return 0;
+}
+
+static int apply_C2(struct Node *a)
+{
+    replace_node_components(a, new_application(a->left->left, a->right), a->left->right, NULL);
+    return 0;
+}
+
+static int apply_input_cont(struct Node *a)
+{
+    struct Node *node=find_all_nodes(NULL, NULL, apply_input_cont);
     if(!node)
-        return;
+        return 0;
 
     struct Node *left=new_application(
         new_combinator('c'),
@@ -275,23 +347,25 @@ static void resolve_input_cont(void)
             new_application(
                 new_combinator('c'),
                 new_combinator('i')),
-            new_node(NULL, NULL, OP_INPUT_CHAR)));
-    struct Node *right=new_node(NULL, NULL, OP_INPUT_CONT);
+            new_node(NULL, NULL, apply_input_char)));
+    struct Node *right=new_node(NULL, NULL, apply_input_cont);
 
     while(node)
     {
         struct Node *next=node->hash_next;
-        replace_node_components(node, left, right, OP_APPLY);
+        replace_node_components(node, left, right, NULL);
 
         node=next;
     }
+
+    return 0;
 }
 
-static void resolve_input_char(void)
+static int apply_input_char(struct Node *a)
 {
-    struct Node *node=find_all_nodes(NULL, NULL, OP_INPUT_CHAR);
+    struct Node *node=find_all_nodes(NULL, NULL, apply_input_char);
     if(!node)
-        return;
+        return 0;
 
     int code=fgetc(stdin);
     if(code<0 || code>255)
@@ -304,98 +378,141 @@ static void resolve_input_char(void)
 
         node=next;
     }
+
+    return 0;
 }
+
+static int apply_output(struct Node *a)
+{
+    struct Node *n=new_application(new_application(a->right, new_atom_X()), new_atom_Y());
+    reduce(n);
+
+    unsigned int code=0;
+    while(!n->apply && n->right->apply==apply_atom_X && code<256+126)
+    {
+        ++code;
+        n=n->left;
+    }
+    if(n->apply!=apply_atom_Y)
+        code=256+126;
+
+    if(code<256)
+    {
+        fputc(code, stdout);
+        fflush(stdout);
+    }
+    else
+    {
+        exit(code-256);
+    }
+
+    // Should return CI<OUT> to continue
+    replace_node_components(a, new_application(new_combinator('c'), new_combinator('i')), new_output_sink(), NULL);
+    return 0;
+}
+
+static int apply_atom_X(struct Node *a)
+{
+    replace_node_components(a, a->right, a->left, NULL);
+    return 0;
+}
+
+static int apply_atom_Y(struct Node *a)
+{
+    return 1;
+}
+
 
 static void dump_node(const struct Node *n, FILE *f)
 {
-    if(n->opcode==OP_APPLY)
+    if(!n->apply)
     {
         fputc('`', f);
         dump_node(n->left, f);
         dump_node(n->right, f);
     }
-    else if(n->opcode==OP_I)
+    else if(n->apply==apply_I)
     {
         fputc('i', f);
     }
-    else if(n->opcode==OP_K)
+    else if(n->apply==apply_K)
     {
         fputc('k', f);
     }
-    else if(n->opcode==OP_K1)
+    else if(n->apply==apply_K1)
     {
         fprintf(f, "[`k");
         dump_node(n->left, f);
         fputc(']', f);
     }
-    else if(n->opcode==OP_S)
+    else if(n->apply==apply_S)
     {
         fputc('s', f);
     }
-    else if(n->opcode==OP_S1)
+    else if(n->apply==apply_S1)
     {
         fprintf(f, "[`s");
         dump_node(n->left, f);
         fputc(']', f);
     }
-    else if(n->opcode==OP_S2)
+    else if(n->apply==apply_S2)
     {
         fprintf(f, "[``s");
         dump_node(n->left, f);
         dump_node(n->right, f);
         fputc(']', f);
     }
-    else if(n->opcode==OP_B)
+    else if(n->apply==apply_B)
     {
         fputc('b', f);
     }
-    else if(n->opcode==OP_B1)
+    else if(n->apply==apply_B1)
     {
         fprintf(f, "[`b");
         dump_node(n->left, f);
         fputc(']', f);
     }
-    else if(n->opcode==OP_B2)
+    else if(n->apply==apply_B2)
     {
         fprintf(f, "[``b");
         dump_node(n->left, f);
         dump_node(n->right, f);
         fputc(']', f);
     }
-    else if(n->opcode==OP_C)
+    else if(n->apply==apply_C)
     {
         fputc('c', f);
     }
-    else if(n->opcode==OP_C1)
+    else if(n->apply==apply_C1)
     {
         fprintf(f, "[`c");
         dump_node(n->left, f);
         fputc(']', f);
     }
-    else if(n->opcode==OP_C2)
+    else if(n->apply==apply_C2)
     {
         fprintf(f, "[``c");
         dump_node(n->left, f);
         dump_node(n->right, f);
         fputc(']', f);
     }
-    else if(n->opcode==OP_INPUT_CONT)
+    else if(n->apply==apply_input_cont)
     {
         fprintf(f, "<INPUT CONTINUATION>");
     }
-    else if(n->opcode==OP_INPUT_CHAR)
+    else if(n->apply==apply_input_char)
     {
         fprintf(f, "<INPUT FGETC>");
     }
-    else if(n->opcode==OP_OUTPUT)
+    else if(n->apply==apply_output)
     {
         fprintf(f, "<OUTPUT SINK>");
     }
-    else if(n->opcode==OP_ATOM_X)
+    else if(n->apply==apply_atom_X)
     {
         fputc('X', f);
     }
-    else if(n->opcode==OP_ATOM_Y)
+    else if(n->apply==apply_atom_Y)
     {
         fputc('Y', f);
     }
@@ -491,7 +608,7 @@ static void reduce(struct Node *p)
 {
     // If the expression's root node is not Application then there's nothing we can do
     // to reduce it
-    if(p->opcode!=OP_APPLY)
+    if(p->apply)
         return;
 
     // Protect root node (and, hence, all the tree) from GC
@@ -505,11 +622,11 @@ static void reduce(struct Node *p)
     struct Node **stack=NULL;
 
     int applies=0;
-    while(p->opcode==OP_APPLY || stack_size>0)
+    while(!p->apply || stack_size>0)
     {
-        if(p->opcode==OP_APPLY)
+        if(!p->apply)
         {
-            if(p->left->opcode==OP_APPLY)
+            if(!p->left->apply)
             {
                 if(stack_size==stack_cap)
                 {
@@ -521,98 +638,10 @@ static void reduce(struct Node *p)
                 stack[stack_size++]=p;
                 p=p->left;
             }
-            else if(p->left->opcode==OP_I)
+            else
             {
-                replace_node(p, p->right);
-            }
-            else if(p->left->opcode==OP_K)
-            {
-                replace_node_components(p, p->right, NULL, OP_K1);
-            }
-            else if(p->left->opcode==OP_K1)
-            {
-                replace_node(p, p->left->left);
-            }
-            else if(p->left->opcode==OP_S)
-            {
-                replace_node_components(p, p->right, NULL, OP_S1);
-            }
-            else if(p->left->opcode==OP_S1)
-            {
-                replace_node_components(p, p->left->left, p->right, OP_S2);
-            }
-            else if(p->left->opcode==OP_S2)
-            {
-                replace_node_components(p, new_application(p->left->left, p->right), new_application(p->left->right, p->right), OP_APPLY);
-            }
-            else if(p->left->opcode==OP_B)
-            {
-                replace_node_components(p, p->right, NULL, OP_B1);
-            }
-            else if(p->left->opcode==OP_B1)
-            {
-                replace_node_components(p, p->left->left, p->right, OP_B2);
-            }
-            else if(p->left->opcode==OP_B2)
-            {
-                replace_node_components(p, p->left->left, new_application(p->left->right, p->right), OP_APPLY);
-            }
-            else if(p->left->opcode==OP_C)
-            {
-                replace_node_components(p, p->right, NULL, OP_C1);
-            }
-            else if(p->left->opcode==OP_C1)
-            {
-                replace_node_components(p, p->left->left, p->right, OP_C2);
-            }
-            else if(p->left->opcode==OP_C2)
-            {
-                replace_node_components(p, new_application(p->left->left, p->right), p->left->right, OP_APPLY);
-            }
-            else if(p->left->opcode==OP_INPUT_CONT)
-            {
-                resolve_input_cont();
-            }
-            else if(p->left->opcode==OP_INPUT_CHAR)
-            {
-                resolve_input_char();
-            }
-            else if(p->left->opcode==OP_OUTPUT)
-            {
-                struct Node *n=new_application(new_application(p->right, new_atom_X()), new_atom_Y());
-                //dump_node_prompt("before: ", n, stderr);
-                reduce(n);
-                //dump_node_prompt("after: ", n, stderr);
-
-                unsigned int code=0;
-                while(n->opcode==OP_APPLY && n->right->opcode==OP_ATOM_X)
-                {
-                    ++code;
-                    n=n->left;
-                }
-                if(n->opcode!=OP_ATOM_Y)
-                    code=256+126;
-
-                if(code<256)
-                {
-                    fputc(code, stdout);
-                    fflush(stdout);
-                }
-                else
-                {
-                    exit(code-256);
-                }
-
-                // Should return CI<OUT> to continue
-                replace_node_components(p, new_application(new_combinator('c'), new_combinator('i')), new_output_sink(), OP_APPLY);
-            }
-            else if(p->left->opcode==OP_ATOM_X)
-            {
-                replace_node_components(p, p->right, p->left, OP_APPLY);
-            }
-            else if(p->left->opcode==OP_ATOM_Y)
-            {
-                break;
+                if(p->left->apply(p))
+                    break;
             }
 
             ++applies;
@@ -644,7 +673,7 @@ int main(int argc, char *argv[])
         numeral[i]->immortal=1;
     }
 
-    struct Node *program=new_node(NULL, NULL, OP_INPUT_CONT);
+    struct Node *program=new_node(NULL, NULL, apply_input_cont);
     for(int i=1; i<argc; ++i)
     {
         FILE *f=fopen(argv[i], "rt");
