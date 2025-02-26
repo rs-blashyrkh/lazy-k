@@ -1,0 +1,36 @@
+1. Global stack
+Use global stack (array of Node pointers). reduce() must return stack balanced.
+Numerals may be put on stack too (fixed positions at the top). GC: autoprotect
+everything that's on stack (so, the list of protected nodes and "immortal" flag
+become unneeded).
+EXPECTED PERFORMANCE INCREASE: NONE/VERY LOW
+
+2. Custom allocator
+Do not use malloc/free for Node allocation. Allocate big chunks, chain all free
+nodes into single-linked list. Allocation is just picking of the first element
+of the list.
+EXPECTED PERFORMANCE INCREASE: LOW
+
+3. No hash table
+Hash table allows to avoid duplicates but requires additional time for other
+manipulations. Remove it completely (or, probably, use only during program
+parsing). All non-free nodes must be chained to allow GC.
+EXPECTED PERFORMANCE INCREASE: QUESTIONABLE
+
+4. Do not change in-place, keep pointer to reduced form
+It was the first version, and it worked too slowly for some reason. Try again,
+find the bug. Refusal of in-place modifications should reduce number of hashings
+and rehashings.
+EXPECTED PERFORMANCE INCREASE: QUESTIONABLE
+
+5. Make numerals on demand
+It may speed up GC a little bit, especially for small programs without input.
+But would decrease performance of programs with input.
+EXPECTED PERFORMANCE INCREASE: NONE
+
+
+Finally, I have to use Lazy K engine as a core of BLC(8) interpreter:
+1. First, convert LC expression to CL expression (I, K, S, B, C combinators).
+2. Different (more simple) input and output. No numerals.
+3. Probably, it would require to convert each output bit back to LC to perform
+eta reduction.
