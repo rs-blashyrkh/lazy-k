@@ -29,12 +29,12 @@
 
 struct Node
 {
-    struct Node   *hash_next;
+    struct Node   *next;
     struct Node   *left;
     struct Node   *right;
     int          (*apply)(struct Node *a);
+    unsigned int   special:1;
     unsigned int   mark:1;
-    unsigned int   immortal:1;
 };
 
 struct ProtectedNode
@@ -43,21 +43,15 @@ struct ProtectedNode
     struct Node          *node;
 };
 
-// TODO: grow on demand
-#ifndef BUCKETS
-# define BUCKETS 65537
-#endif
-
 #ifndef GC_EVERY
 # define GC_EVERY 25000
 #endif
 
 // Global variables
 // {
-static struct Node *bucket_heads[BUCKETS]={NULL};
 static struct ProtectedNode *protected_nodes=NULL;
-// TODO: use +1 and *2 (and probably a^b and a^a) ops
-static struct Node *numeral[257];
+static struct Node *special_node_list=NULL; // INPUT_CONT and INPUT_CHAR nodes, ".left" is used for chaining
+static struct Node *all_node_list=NULL; // All nodes (including special ones), ".next" is used for chaining
 // }
 
 static void dump_node(const struct Node *n, FILE *f);
@@ -88,8 +82,11 @@ static void mark_node(struct Node *node)
     if(node && !node->mark)
     {
         node->mark=1;
-        mark_node(node->left);
-        mark_node(node->right);
+        if(!node->special)
+        {
+            mark_node(node->left);
+            mark_node(node->right);
+        }
     }
 }
 
@@ -99,165 +96,133 @@ static void gc(void)
     for(struct ProtectedNode *p=protected_nodes; p!=NULL; p=p->next)
         mark_node(p->node);
 
+    struct Node **pp;
+
+    // Unchain all unmarked special nodes
+    pp=&special_node_list;
+    while(*pp)
+    {
+        struct Node *p=*pp;
+        if(!p->mark)
+        {
+            *pp=p->left;
+        }
+        else
+        {
+            pp=&p->left;
+        }
+    }
+
     unsigned int freed=0;
     unsigned int kept=0;
-    // Unhash and free all unmarked nodes, unmark all marked nodes
-    for(unsigned int bucket=0; bucket<BUCKETS; ++bucket)
+
+    // Unchain and free all unmarked nodes, unmark all marked nodes
+    pp=&all_node_list;
+    while(*pp)
     {
-        struct Node **pp=bucket_heads+bucket;
-        while((*pp)!=NULL)
+        struct Node *p=*pp;
+        if(!p->mark)
         {
-            struct Node *p=*pp;
-            if(p->mark || p->immortal)
-            {
-                p->mark=0;
-                pp=&p->hash_next;
-                ++kept;
-            }
-            else
-            {
-                *pp=p->hash_next;
-                free(p);
-                ++freed;
-            }
+            *pp=p->next;
+            free(p);
+            ++freed;
+        }
+        else
+        {
+            p->mark=0;
+            pp=&p->next;
+            ++kept;
         }
     }
     //fprintf(stderr, "GC: %u freed, %u kept\n", freed, kept);
 }
 
-static inline unsigned int find_bucket(struct Node *left, struct Node *right, int (*apply)(struct Node *a))
+static inline struct Node *new_node(struct Node *left, struct Node *right, int (*apply)(struct Node *a), int special)
 {
-    unsigned int hash=2235019355U;
-    hash=((hash<<13)+hash+(unsigned int)(intptr_t)left)^(hash>>19);
-    hash=((hash<<13)+hash+(unsigned int)(intptr_t)right)^(hash>>19);
-    hash=((hash<<13)+hash+(unsigned int)(intptr_t)apply)^(hash>>19);
-//    hash=((hash<<13)+hash+opcode)^(hash>>19);
-
-    return hash%BUCKETS;
-}
-
-static inline struct Node *new_node(struct Node *left, struct Node *right, int (*apply)(struct Node *a))
-{
-    const unsigned int bucket=find_bucket(left, right, apply);
-    struct Node *p=bucket_heads[bucket];
-    while(p)
-    {
-        if(p->left==left && p->right==right && p->apply==apply)
-            return p;
-        p=p->hash_next;
-    }
-
-    p=(struct Node *)malloc(sizeof(struct Node));
-    p->hash_next=bucket_heads[bucket];
+    struct Node *p=(struct Node *)malloc(sizeof(struct Node));
+    p->next=all_node_list;
     p->left=left;
     p->right=right;
     p->apply=apply;
+    p->special=special;
     p->mark=0;
-    p->immortal=0;
-    bucket_heads[bucket]=p;
+    all_node_list=p;
+
+    if(special)
+    {
+        p->left=special_node_list;
+        special_node_list=p;
+    }
 
     return p;
 }
 
-static inline void unhash_node(struct Node *node)
-{
-    const unsigned int bucket=find_bucket(node->left, node->right, node->apply);
-    struct Node **p=bucket_heads+bucket;
-    while(*p && *p!=node)
-        p=&(*p)->hash_next;
-    if(*p==node)
-    {
-        *p=node->hash_next;
-        node->hash_next=NULL;
-    }
-}
-
-static inline void hash_node(struct Node *node)
-{
-    const unsigned int bucket=find_bucket(node->left, node->right, node->apply);
-    node->hash_next=bucket_heads[bucket];
-    bucket_heads[bucket]=node;
-}
-
-static inline void replace_node_components(
-    struct Node   *node,
-    struct Node   *left,
-    struct Node   *right,
-    int          (*apply)(struct Node *a))
-{
-    unhash_node(node);
-    node->left=left;
-    node->right=right;
-    node->apply=apply;
-    hash_node(node);
-}
-
-static inline void replace_node(
-    struct Node   *node,
-    struct Node   *orig)
-{
-    replace_node_components(node, orig->left, orig->right, orig->apply);
-}
-
-
-
 static inline struct Node *new_application(struct Node *left, struct Node *right)
 {
-    return new_node(left, right, NULL);
+    return new_node(left, right, NULL, 0);
 }
 
 static inline struct Node *new_combinator(char ch)
 {
     ch=tolower(ch);
     if(ch=='i')
-        return new_node(NULL, NULL, apply_I);
+        return new_node(NULL, NULL, apply_I, 0);
     else if(ch=='k')
-        return new_node(NULL, NULL, apply_K);
+        return new_node(NULL, NULL, apply_K, 0);
     else if(ch=='s')
-        return new_node(NULL, NULL, apply_S);
+        return new_node(NULL, NULL, apply_S, 0);
     else if(ch=='b')
-        return new_node(NULL, NULL, apply_B);
+        return new_node(NULL, NULL, apply_B, 0);
     else if(ch=='c')
-        return new_node(NULL, NULL, apply_C);
+        return new_node(NULL, NULL, apply_C, 0);
     else
         return NULL;
 }
 
+static inline struct Node *new_input_cont(void)
+{
+    return new_node(NULL, NULL, apply_input_cont, 1);
+}
+
+static inline struct Node *new_input_char(void)
+{
+    return new_node(NULL, NULL, apply_input_char, 1);
+}
+
 static inline struct Node *new_output_sink(void)
 {
-    return new_node(NULL, NULL, apply_output);
+    return new_node(NULL, NULL, apply_output, 0);
 }
 
 static inline struct Node *new_atom_X(void)
 {
-    return new_node(NULL, NULL, apply_atom_X);
+    return new_node(NULL, NULL, apply_atom_X, 0);
 }
 
 static inline struct Node *new_atom_Y(void)
 {
-    return new_node(NULL, NULL, apply_atom_Y);
+    return new_node(NULL, NULL, apply_atom_Y, 0);
 }
 
 // Find all nodes, remove them from the hash table, chain together into single-linked list
 // and return the head of the list (and in the darkness bind them, of course)
-static struct Node *find_all_nodes(struct Node *left, struct Node *right, int (*apply)(struct Node *a))
+static struct Node *find_special_nodes(int (*apply)(struct Node *a))
 {
     struct Node *res=NULL;
 
-    const unsigned int bucket=find_bucket(left, right, apply);
-    struct Node **pp=bucket_heads+bucket;
+    struct Node **pp=&special_node_list;
     while(*pp!=NULL)
     {
         struct Node *p=*pp;
-        if(p->left==left && p->right==right && p->apply==apply)
+        if(p->apply==apply)
         {
-            *pp=p->hash_next;
-            p->hash_next=res;
+            *pp=p->left;
+            p->left=res;
             res=p;
         }
         else
         {
-            pp=&p->hash_next;
+            pp=&p->left;
         }
     }
     return res;
@@ -265,79 +230,159 @@ static struct Node *find_all_nodes(struct Node *left, struct Node *right, int (*
 
 static int apply_I(struct Node *a)
 {
-    replace_node(a, a->right);
+    struct Node *op=a->right;
+
+    a->left=op->left;
+    a->right=op->right;
+    a->apply=op->apply;
+    a->special=op->special;
+
+    if(a->special)
+    {
+        a->left=special_node_list;
+        special_node_list=a;
+    }
+
     return 0;
 }
 
 static int apply_K(struct Node *a)
 {
-    replace_node_components(a, a->right, NULL, apply_K1);
+    struct Node *op=a->right;
+
+    a->left=op;
+    a->right=NULL;
+    a->apply=apply_K1;
+
     return 0;
 }
 
 static int apply_K1(struct Node *a)
 {
-    replace_node(a, a->left->left);
+    struct Node *stored_value=a->left->left;
+
+    a->left=stored_value->left;
+    a->right=stored_value->right;
+    a->apply=stored_value->apply;
+    a->special=stored_value->special;
+
+    if(a->special)
+    {
+        a->left=special_node_list;
+        special_node_list=a;
+    }
+
     return 0;
 }
 
 static int apply_S(struct Node *a)
 {
-    replace_node_components(a, a->right, NULL, apply_S1);
+    struct Node *op=a->right;
+
+    a->left=op;
+    a->right=NULL;
+    a->apply=apply_S1;
+
     return 0;
 }
 
 static int apply_S1(struct Node *a)
 {
-    replace_node_components(a, a->left->left, a->right, apply_S2);
+    struct Node *op=a->right;
+    struct Node *stored_value=a->left->left;
+
+    a->left=stored_value;
+    a->right=op;
+    a->apply=apply_S2;
+
     return 0;
 }
 
 static int apply_S2(struct Node *a)
 {
-    replace_node_components(a, new_application(a->left->left, a->right), new_application(a->left->right, a->right), NULL);
+    struct Node *op=a->right;
+    struct Node *stored_value_1=a->left->left;
+    struct Node *stored_value_2=a->left->right;
+
+    a->left=new_application(stored_value_1, op);
+    a->right=new_application(stored_value_2, op);
+
     return 0;
 }
 
 static int apply_B(struct Node *a)
 {
-    replace_node_components(a, a->right, NULL, apply_B1);
+    struct Node *op=a->right;
+
+    a->left=op;
+    a->right=NULL;
+    a->apply=apply_B1;
+
     return 0;
 }
 
 static int apply_B1(struct Node *a)
 {
-    replace_node_components(a, a->left->left, a->right, apply_B2);
+    struct Node *op=a->right;
+    struct Node *stored_value=a->left->left;
+
+    a->left=stored_value;
+    a->right=op;
+    a->apply=apply_B2;
+
     return 0;
 }
 
 static int apply_B2(struct Node *a)
 {
-    replace_node_components(a, a->left->left, new_application(a->left->right, a->right), NULL);
+    struct Node *op=a->right;
+    struct Node *stored_value_1=a->left->left;
+    struct Node *stored_value_2=a->left->right;
+
+    a->left=stored_value_1;
+    a->right=new_application(stored_value_2, op);
+
     return 0;
 }
 
 static int apply_C(struct Node *a)
 {
-    replace_node_components(a, a->right, NULL, apply_C1);
+    struct Node *op=a->right;
+
+    a->left=op;
+    a->right=NULL;
+    a->apply=apply_C1;
+
     return 0;
 }
 
 static int apply_C1(struct Node *a)
 {
-    replace_node_components(a, a->left->left, a->right, apply_C2);
+    struct Node *op=a->right;
+    struct Node *stored_value=a->left->left;
+
+    a->left=stored_value;
+    a->right=op;
+    a->apply=apply_C2;
+
     return 0;
 }
 
 static int apply_C2(struct Node *a)
 {
-    replace_node_components(a, new_application(a->left->left, a->right), a->left->right, NULL);
+    struct Node *op=a->right;
+    struct Node *stored_value_1=a->left->left;
+    struct Node *stored_value_2=a->left->right;
+
+    a->left=new_application(stored_value_1, op);
+    a->right=stored_value_2;
+
     return 0;
 }
 
 static int apply_input_cont(struct Node *a)
 {
-    struct Node *node=find_all_nodes(NULL, NULL, apply_input_cont);
+    struct Node *node=find_special_nodes(apply_input_cont);
     if(!node)
         return 0;
 
@@ -347,13 +392,17 @@ static int apply_input_cont(struct Node *a)
             new_application(
                 new_combinator('c'),
                 new_combinator('i')),
-            new_node(NULL, NULL, apply_input_char)));
-    struct Node *right=new_node(NULL, NULL, apply_input_cont);
+            new_input_char()));
+    struct Node *right=new_input_cont();
 
     while(node)
     {
-        struct Node *next=node->hash_next;
-        replace_node_components(node, left, right, NULL);
+        struct Node *next=node->left;
+
+        node->left=left;
+        node->right=right;
+        node->apply=NULL;
+        node->special=0;
 
         node=next;
     }
@@ -363,7 +412,7 @@ static int apply_input_cont(struct Node *a)
 
 static int apply_input_char(struct Node *a)
 {
-    struct Node *node=find_all_nodes(NULL, NULL, apply_input_char);
+    struct Node *node=find_special_nodes(apply_input_char);
     if(!node)
         return 0;
 
@@ -371,10 +420,20 @@ static int apply_input_char(struct Node *a)
     if(code<0 || code>255)
         code=256;
 
+    struct Node *donor=new_application(new_combinator('k'), new_combinator('i'));
+    for(int i=0; i<code; ++i)
+    {
+        donor=new_application(new_application(new_combinator('s'), new_combinator('b')), donor);
+    }
+
     while(node)
     {
-        struct Node *next=node->hash_next;
-        replace_node(node, numeral[code]);
+        struct Node *next=node->left;
+
+        node->left=donor->left;
+        node->right=donor->right;
+        node->apply=donor->apply;
+        node->special=0;
 
         node=next;
     }
@@ -407,13 +466,16 @@ static int apply_output(struct Node *a)
     }
 
     // Should return CI<OUT> to continue
-    replace_node_components(a, new_application(new_combinator('c'), new_combinator('i')), new_output_sink(), NULL);
+    a->left=new_application(new_combinator('c'), new_combinator('i'));
+    a->right=new_output_sink();
     return 0;
 }
 
 static int apply_atom_X(struct Node *a)
 {
-    replace_node_components(a, a->right, a->left, NULL);
+    struct Node *tmp=a->right;
+    a->right=a->left;
+    a->left=tmp;
     return 0;
 }
 
@@ -665,15 +727,7 @@ static void reduce(struct Node *p)
 
 int main(int argc, char *argv[])
 {
-    numeral[0]=new_application(new_combinator('k'), new_combinator('i'));
-    numeral[0]->immortal=1;
-    for(int i=1; i<=256; ++i)
-    {
-        numeral[i]=new_application(new_application(new_combinator('s'), new_combinator('b')), numeral[i-1]);
-        numeral[i]->immortal=1;
-    }
-
-    struct Node *program=new_node(NULL, NULL, apply_input_cont);
+    struct Node *program=new_input_cont();
     for(int i=1; i<argc; ++i)
     {
         FILE *f=fopen(argv[i], "rt");
