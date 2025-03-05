@@ -70,6 +70,8 @@ static int apply_B2(struct Node *a);
 static int apply_C(struct Node *a);
 static int apply_C1(struct Node *a);
 static int apply_C2(struct Node *a);
+static int apply_O(struct Node *a);
+static int apply_O1(struct Node *a);
 static int apply_input_cont(struct Node *a);
 static int apply_input_char(struct Node *a);
 static int apply_output(struct Node *a);
@@ -164,17 +166,26 @@ static inline struct Node *new_application(struct Node *left, struct Node *right
 
 static inline struct Node *new_combinator(char ch)
 {
+    static struct Node I={NULL, NULL, NULL, apply_I, 0, 0};
+    static struct Node K={NULL, NULL, NULL, apply_K, 0, 0};
+    static struct Node S={NULL, NULL, NULL, apply_S, 0, 0};
+    static struct Node B={NULL, NULL, NULL, apply_B, 0, 0};
+    static struct Node C={NULL, NULL, NULL, apply_C, 0, 0};
+    static struct Node O={NULL, NULL, NULL, apply_O, 0, 0};
+
     ch=tolower(ch);
     if(ch=='i')
-        return new_node(NULL, NULL, apply_I, 0);
+        return &I;
     else if(ch=='k')
-        return new_node(NULL, NULL, apply_K, 0);
+        return &K;
     else if(ch=='s')
-        return new_node(NULL, NULL, apply_S, 0);
+        return &S;
     else if(ch=='b')
-        return new_node(NULL, NULL, apply_B, 0);
+        return &B;
     else if(ch=='c')
-        return new_node(NULL, NULL, apply_C, 0);
+        return &C;
+    else if(ch=='o')
+        return &O;
     else
         return NULL;
 }
@@ -380,6 +391,28 @@ static int apply_C2(struct Node *a)
     return 0;
 }
 
+static int apply_O(struct Node *a)
+{
+    struct Node *op=a->right;
+
+    a->left=op;
+    a->right=NULL;
+    a->apply=apply_O1;
+
+    return 0;
+}
+
+static int apply_O1(struct Node *a)
+{
+    struct Node *op=a->right;
+    struct Node *stored_value=a->left->left;
+
+    a->left=op;
+    a->right=new_application(stored_value, op);
+
+    return 0;
+}
+
 static int apply_input_cont(struct Node *a)
 {
     struct Node *node=find_special_nodes(apply_input_cont);
@@ -558,6 +591,16 @@ static void dump_node(const struct Node *n, FILE *f)
         dump_node(n->right, f);
         fputc(']', f);
     }
+    else if(n->apply==apply_O)
+    {
+        fputc('o', f);
+    }
+    else if(n->apply==apply_O1)
+    {
+        fprintf(f, "[`o");
+        dump_node(n->left, f);
+        fputc(']', f);
+    }
     else if(n->apply==apply_input_cont)
     {
         fprintf(f, "<INPUT CONTINUATION>");
@@ -646,11 +689,21 @@ static struct Node *parse_file(FILE *f)
 
             while(n_stack_size>0 && n_stack[n_stack_size-1]==2)
             {
-                struct Node *a=new_application(op_stack[op_stack_size-2], op_stack[op_stack_size-1]);
-                --n_stack_size;
-                ++n_stack[n_stack_size-1];
-                --op_stack_size;
-                op_stack[op_stack_size-1]=a;
+                if(op_stack[op_stack_size-2]->apply==apply_S && op_stack[op_stack_size-1]->apply==apply_I)
+                {
+                    --n_stack_size;
+                    ++n_stack[n_stack_size-1];
+                    --op_stack_size;
+                    op_stack[op_stack_size-1]=new_combinator('o');
+                }
+                else
+                {
+                    struct Node *a=new_application(op_stack[op_stack_size-2], op_stack[op_stack_size-1]);
+                    --n_stack_size;
+                    ++n_stack[n_stack_size-1];
+                    --op_stack_size;
+                    op_stack[op_stack_size-1]=a;
+                }
             }
         }
     }
@@ -750,6 +803,8 @@ int main(int argc, char *argv[])
     }
 
     program=new_application(program, new_output_sink());
+
+//    dump_node_prompt("main program: ", program, stderr);
 
     reduce(program);
 
