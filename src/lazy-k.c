@@ -276,11 +276,13 @@ static int apply_Kx(struct Node *a)
 static int apply_S(struct Node *a)
 {
     // It slows down a bit (cost of extra checks), so it's commented out
-    // if(a->right->apply==apply_I)
-    // {
-    //     a->apply=apply_O;
-    // }
-    // else
+#if 0
+    if(a->right->apply==apply_I)
+    {
+        a->apply=apply_O;
+    }
+    else
+#endif
     {
         a->apply=apply_Sx;
     }
@@ -290,15 +292,14 @@ static int apply_S(struct Node *a)
 
 static int apply_Sx(struct Node *a)
 {
-    // Doesn't affect performance, so it's commented out
-    // if(a->right->apply==apply_I)
-    // {
-    //     a->right=a->left->right;
-    //     a->apply=apply_Wx;
-    // }
-    // else
+#if 1
+    if(a->right->apply==apply_I)
     {
-        a->left=a->left->right;
+        a->apply=apply_Wx;
+    }
+    else
+#endif
+    {
         a->apply=apply_Sxy;
     }
 
@@ -307,7 +308,7 @@ static int apply_Sx(struct Node *a)
 
 static int apply_Sxy(struct Node *a)
 {
-    replace_application(a, new_application(a->left->left, a->right), new_application(a->left->right, a->right));
+    replace_application(a, new_application(a->left->left->right, a->right), new_application(a->left->right, a->right));
     return 0;
 }
 
@@ -319,14 +320,13 @@ static int apply_B(struct Node *a)
 
 static int apply_Bx(struct Node *a)
 {
-    a->left=a->left->right;
     a->apply=apply_Bxy;
     return 0;
 }
 
 static int apply_Bxy(struct Node *a)
 {
-    replace_application(a, a->left->left, new_application(a->left->right, a->right));
+    replace_application(a, a->left->left->right, new_application(a->left->right, a->right));
     return 0;
 }
 
@@ -338,14 +338,13 @@ static int apply_C(struct Node *a)
 
 static int apply_Cx(struct Node *a)
 {
-    a->left=a->left->right;
     a->apply=apply_Cxy;
     return 0;
 }
 
 static int apply_Cxy(struct Node *a)
 {
-    replace_application(a, new_application(a->left->left, a->right), a->left->right);
+    replace_application(a, new_application(a->left->left->right, a->right), a->left->right);
     return 0;
 }
 
@@ -363,7 +362,7 @@ static int apply_Ox(struct Node *a)
 
 static int apply_Wx(struct Node *a)
 {
-    replace_application(a, new_application(a->left->right, a->right), a->right);
+    replace_application(a, new_application(a->left->left->right, a->right), a->right);
     return 0;
 }
 
