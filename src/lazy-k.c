@@ -71,6 +71,9 @@ static int apply_Cxy(struct Node *a);
 static int apply_O(struct Node *a);
 static int apply_Ox(struct Node *a);
 static int apply_Wx(struct Node *a);
+static int apply_KI(struct Node *a);
+static int apply_KIx(struct Node *a);
+static int apply_M(struct Node *a);
 static int apply_input_cont(struct Node *a);
 static int apply_input_char(struct Node *a);
 static int apply_output(struct Node *a);
@@ -158,12 +161,15 @@ static inline struct Node *new_node(struct Node *left, struct Node *right, int (
     return p;
 }
 
+// Combinators. Statically allocated, not chained by ".next" and thus they can't become victims of GC.
 static struct Node I={NULL, NULL, NULL, apply_I, 0, 0};
 static struct Node K={NULL, NULL, NULL, apply_K, 0, 0};
 static struct Node S={NULL, NULL, NULL, apply_S, 0, 0};
 static struct Node B={NULL, NULL, NULL, apply_B, 0, 0};
 static struct Node C={NULL, NULL, NULL, apply_C, 0, 0};
 static struct Node O={NULL, NULL, NULL, apply_O, 0, 0};
+static struct Node KI={NULL, NULL, NULL, apply_KI, 0, 0};
+static struct Node M={NULL, NULL, NULL, apply_M, 0, 0};
 
 static inline struct Node *new_combinator(char ch)
 {
@@ -263,6 +269,13 @@ static int apply_I(struct Node *a)
 
 static int apply_K(struct Node *a)
 {
+#ifdef OPTIMIZE_KI_RUN
+    if(a->right->apply==apply_I)
+    {
+        a->apply=apply_KI;
+        return 0;
+    }
+#endif
     a->apply=apply_Kx;
     return 0;
 }
@@ -275,34 +288,36 @@ static int apply_Kx(struct Node *a)
 
 static int apply_S(struct Node *a)
 {
-    // It slows down a bit (cost of extra checks), so it's commented out
-#if 0
+#ifdef OPTIMIZE_SI_RUN
     if(a->right->apply==apply_I)
     {
         a->apply=apply_O;
+        return 0;
     }
-    else
 #endif
+#ifdef OPTIMIZE_KI_RUN
+    if(a->right->apply==apply_K)
     {
-        a->apply=apply_Sx;
+        a->apply=apply_KI;
+        return 0;
     }
+#endif
 
+    a->apply=apply_Sx;
     return 0;
 }
 
 static int apply_Sx(struct Node *a)
 {
-#if 1
+#ifdef OPTIMIZE_SxI_RUN
     if(a->right->apply==apply_I)
     {
         a->apply=apply_Wx;
+        return 0;
     }
-    else
 #endif
-    {
-        a->apply=apply_Sxy;
-    }
 
+    a->apply=apply_Sxy;
     return 0;
 }
 
@@ -350,6 +365,13 @@ static int apply_Cxy(struct Node *a)
 
 static int apply_O(struct Node *a)
 {
+#ifdef OPTIMIZE_M_RUN
+    if(a->right->apply==apply_I)
+    {
+        a->apply=apply_M;
+        return 0;
+    }
+#endif
     a->apply=apply_Ox;
     return 0;
 }
@@ -363,6 +385,24 @@ static int apply_Ox(struct Node *a)
 static int apply_Wx(struct Node *a)
 {
     replace_application(a, new_application(a->left->left->right, a->right), a->right);
+    return 0;
+}
+
+static int apply_KI(struct Node *a)
+{
+    a->apply=apply_KIx;
+    return 0;
+}
+
+static int apply_KIx(struct Node *a)
+{
+    replace_node(a, a->right);
+    return 0;
+}
+
+static int apply_M(struct Node *a)
+{
+    a->left=a->right;
     return 0;
 }
 
@@ -446,16 +486,13 @@ static int apply_output(struct Node *a)
     }
 
     // Should return CI<OUT> to continue
-    a->left=new_application(&C, &I);
-    a->right=new_output_sink();
+    replace_application(a, new_application(&C, &I), new_output_sink());
     return 0;
 }
 
 static int apply_atom_X(struct Node *a)
 {
-    struct Node *tmp=a->right;
-    a->right=a->left;
-    a->left=tmp;
+    replace_application(a, a->right, a->left);
     return 0;
 }
 
@@ -525,15 +562,27 @@ static struct Node *parse_file(FILE *f)
             {
                 struct Node *left=op_stack[op_stack_size-2];
                 struct Node *right=op_stack[op_stack_size-1];
+                struct Node *p=NULL;
 
                 --n_stack_size;
                 ++n_stack[n_stack_size-1];
                 --op_stack_size;
 
+#ifdef OPTIMIZE_SI_LOAD
                 if(left->apply==apply_S && right->apply==apply_I)
-                    op_stack[op_stack_size-1]=&O;
-                else
-                    op_stack[op_stack_size-1]=new_application(left, right);
+                    p=&O;
+#endif
+
+#ifdef OPTIMIZE_KI_LOAD
+                if((left->apply==apply_K && right->apply==apply_I) || (left->apply==apply_S && right->apply==apply_K))
+                    p=&KI;
+#endif
+
+#ifdef OPTIMIZE_M_LOAD
+                if(left->apply==apply_O && right->apply==apply_I)
+                    p=&M;
+#endif
+                op_stack[op_stack_size-1]=p?p:new_application(left, right);
             }
         }
     }
