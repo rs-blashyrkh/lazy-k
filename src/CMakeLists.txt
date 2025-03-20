@@ -4,14 +4,23 @@ project(lazy-k)
 add_compile_definitions(GC_EVERY=10000000)
 
 add_compile_definitions(OPTIMIZE_SI_LOAD)
+add_compile_definitions(OPTIMIZE_KI_LOAD)
+add_compile_definitions(OPTIMIZE_M_LOAD)
+add_compile_definitions(OPTIMIZE_CI_LOAD)
+add_compile_definitions(OPTIMIZE_BC_LOAD)
+add_compile_definitions(OPTIMIZE_V_LOAD)
+add_compile_definitions(OPTIMIZE_Q3_LOAD)
+add_compile_definitions(OPTIMIZE_D_LOAD)
+
 #add_compile_definitions(OPTIMIZE_SI_RUN)
 add_compile_definitions(OPTIMIZE_SxI_RUN)
-
-add_compile_definitions(OPTIMIZE_KI_LOAD)
 #add_compile_definitions(OPTIMIZE_KI_RUN)
-
-#add_compile_definitions(OPTIMIZE_M_LOAD)
 #add_compile_definitions(OPTIMIZE_M_RUN)
+#add_compile_definitions(OPTIMIZE_CI_RUN)
+#add_compile_definitions(OPTIMIZE_BC_RUN)
+#add_compile_definitions(OPTIMIZE_V_RUN)
+#add_compile_definitions(OPTIMIZE_Q3_RUN)
+#add_compile_definitions(OPTIMIZE_D_RUN)
 
 add_executable(lazy-k lazy-k.c)
 #target_compile_options(lazy-k PUBLIC -Wl,-z,stacksize=0x40000000)

@@ -11,11 +11,12 @@ nodes into single-linked list. Allocation is just picking of the first element
 of the list.
 EXPECTED PERFORMANCE INCREASE: LOW
 
-3. No hash table
++3. No hash table
 Hash table allows to avoid duplicates but requires additional time for other
 manipulations. Remove it completely (or, probably, use only during program
 parsing). All non-free nodes must be chained to allow GC.
 EXPECTED PERFORMANCE INCREASE: QUESTIONABLE
+ACTUAL PERFORMANCE INCREASE: SIGNIFICANT
 
 4. Do not change in-place, keep pointer to reduced form
 It was the first version, and it worked too slowly for some reason. Try again,
@@ -23,10 +24,11 @@ find the bug. Refusal of in-place modifications should reduce number of hashings
 and rehashings.
 EXPECTED PERFORMANCE INCREASE: QUESTIONABLE
 
-5. Make numerals on demand
++5. Make numerals on demand
 It may speed up GC a little bit, especially for small programs without input.
 But would decrease performance of programs with input.
 EXPECTED PERFORMANCE INCREASE: NONE
+ACTUAL PERFORMANCE INCREASE: NONE
 
 
 Finally, I have to use Lazy K engine as a core of BLC(8) interpreter:
