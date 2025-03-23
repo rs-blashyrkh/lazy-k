@@ -606,7 +606,7 @@ static int apply_input_cont(struct Node *a)
     {
     case IO_LAZYK:
         {
-            struct Node *left=new_application(&C, new_application(&T, new_input_char()));
+            struct Node *left=new_application(&V, new_input_char());
             struct Node *right=new_input_cont();
 
             while(node)
@@ -624,13 +624,80 @@ static int apply_input_cont(struct Node *a)
         break;
 
     case IO_BLC:
-        // TODO
+        {
+            int code;
+            for(;;)
+            {
+                code=fgetc(stdin);
+                if(code=='0' || code=='1' || code==EOF)
+                    break;
+            }
+
+            struct Node *left=NULL;
+            struct Node *right=NULL;
+            int (*apply)(struct Node *)=NULL;
+
+            if(code==EOF)
+            {
+                apply=&apply_KI;
+            }
+            else
+            {
+                left=new_application(&V, code==0 ? &K : &KI);
+                right=new_input_cont();
+            }
+
+            while(node)
+            {
+                struct Node *next=node->left;
+
+                node->left=left;
+                node->right=right;
+                node->apply=NULL;
+                node->special=0;
+
+                node=next;
+            }
+        }
         break;
 
     case IO_BLC8:
-        // TODO
-        break;
+        {
+            int code=fgetc(stdin);
 
+            struct Node *left=NULL;
+            struct Node *right=NULL;
+            int (*apply)(struct Node *)=NULL;
+
+            if(code==EOF)
+            {
+                apply=&apply_KI;
+            }
+            else
+            {
+                struct Node *p=&KI;
+                for(int i=0; i<8; ++i, code>>=1)
+                {
+                    p=new_application((code&1) ? &KI : &K, p);
+                }
+
+                left=p->left;
+                right=p->right;
+            }
+
+            while(node)
+            {
+                struct Node *next=node->left;
+
+                node->left=left;
+                node->right=right;
+                node->apply=NULL;
+                node->special=0;
+
+                node=next;
+            }
+        }
+        break;
     }
 
     return 0;
@@ -646,7 +713,7 @@ static int apply_input_char(struct Node *a)
     if(code<0 || code>255)
         code=256;
 
-    struct Node *donor=new_application(&K, &I);
+    struct Node *donor=&KI;
     for(int i=0; i<code; ++i)
     {
         donor=new_application(new_application(&S, &B), donor);
@@ -716,14 +783,41 @@ static int apply_output_cont(struct Node *a)
             // lambda x . x <OUT> <STOP> = C(CI<OUT>)<STOP>
             replace_application(
                 a,
-                new_application(&C, new_application(&T, new_output_sink())),
+                new_application(&V, new_output_sink()),
                 new_output_stop());
         }
         break;
 
     case IO_BLC8:
-        abort();
-        // TODO!
+        {
+            unsigned int code=0;
+            struct Node *l=a->right;
+            for(int i=0; i<8; ++i)
+            {
+                struct Node *n=new_application(l, new_application(new_application(&V, new_atom_X()), new_atom_Y()));
+                reduce(n);
+                if(n->left->apply==apply_atom_X)
+                {
+                    code=2*code;
+                }
+                else if(n->left->apply==apply_atom_Y)
+                {
+                    code=2*code+1;
+                }
+                else
+                {
+                    exit(126);
+                }
+                l=n->right;
+            }
+            fputc(code, stdout);
+            fflush(stdout);
+
+            replace_application(
+                a,
+                new_application(&V, new_output_sink()),
+                new_output_stop());
+        }
         break;
 
     }
@@ -737,8 +831,15 @@ static int apply_output_stop(struct Node *a)
 
 static int apply_atom_X(struct Node *a)
 {
-    replace_application(a, a->right, a->left);
-    return 0;
+    if(io_mode==IO_LAZYK)
+    {
+        replace_application(a, a->right, a->left);
+        return 0;
+    }
+    else
+    {
+        return 1;
+    }
 }
 
 static int apply_atom_Y(struct Node *a)
@@ -1100,6 +1201,96 @@ static struct Node *parse_blc_program(FILE *f, unsigned int lambda_depth)
     }
 }
 
+struct BLC8BitBuffer
+{
+    FILE         *f;
+    unsigned int  bits;
+    unsigned int  count;
+};
+
+static inline void init_blc8_buffer(struct BLC8BitBuffer *p, FILE *f)
+{
+    p->f=f;
+    p->bits=0;
+    p->count=0;
+}
+
+static inline int read_blc8_buffer(struct BLC8BitBuffer *p)
+{
+    if(p->count==0)
+    {
+        int ch=fgetc(p->f);
+        if(ch==EOF)
+            return -1;
+        p->bits=ch;
+        p->count=8;
+    }
+
+    --p->count;
+    p->bits<<=1;
+    return (p->bits&0x100)>>8;
+}
+
+static struct Node *parse_blc8_subprogram(struct BLC8BitBuffer *buf, unsigned int lambda_depth)
+{
+    int ch=read_blc8_buffer(buf);
+    if(ch==0)
+    {
+        ch=read_blc8_buffer(buf);
+        if(ch==0)
+        {
+            struct Node *p=parse_blc8_subprogram(buf, lambda_depth+1);
+            if(!p)
+                return NULL;
+
+            p=eliminate_lambda(p);
+            adjust_variables(p);
+
+            return p;
+        }
+        else if(ch==1)
+        {
+            struct Node *left=parse_blc8_subprogram(buf, lambda_depth);
+            if(!left)
+                return NULL;
+            struct Node *right=parse_blc8_subprogram(buf, lambda_depth);
+            if(!right)
+                return NULL;
+            return new_application_load(left, right);
+        }
+        else
+        {
+            return NULL;
+        }
+    }
+    else if(ch==1)
+    {
+        unsigned int index=0;
+        while((ch=read_blc8_buffer(buf))==1)
+        {
+            ++index;
+        }
+        if(ch!=0 || index>=lambda_depth)
+        {
+            return NULL;
+        }
+
+        return new_variable(index);
+    }
+    else
+    {
+        return NULL;
+    }
+}
+
+static struct Node *parse_blc8_program(FILE *f)
+{
+    struct BLC8BitBuffer buf;
+    init_blc8_buffer(&buf, f);
+
+    return parse_blc8_subprogram(&buf, 0);
+}
+
 static inline const char *comb(struct Node *p)
 {
     if(p->apply==apply_I)
@@ -1305,8 +1496,10 @@ int main(int argc, char *argv[])
         {
             node=parse_blc_program(f, 0);
         }
-        // TODO: else
-
+        else if(is_blc8_source(argv[i]))
+        {
+            node=parse_blc8_program(f);
+        }
 
         fclose(f);
 
