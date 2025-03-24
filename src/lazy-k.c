@@ -678,7 +678,7 @@ static int apply_input_cont(struct Node *a)
                 struct Node *p=&KI;
                 for(int i=0; i<8; ++i, code>>=1)
                 {
-                    p=new_application((code&1) ? &KI : &K, p);
+                    p=new_application(new_application(&V, (code&1) ? &KI : &K), p);
                 }
 
                 left=p->left;
@@ -1060,7 +1060,7 @@ static struct Node *eliminate_lambda(struct Node *p)
     // Tromp rule 1: lambda x . S K y -> S K
     if(IS_A(p) && IS_A(p->left) && p->left->left->apply==&apply_S && p->left->right->apply==&apply_K)
     {
-        return new_application_load(&S, &K);
+        return &KI;
     }
     // Common rule 2: lambda x . M (where M doesn't contain variable 0) -> K M
     else if(!contains_variable_zero(p))
