@@ -643,7 +643,7 @@ static int apply_input_cont(struct Node *a)
             }
             else
             {
-                left=new_application(&V, code==0 ? &K : &KI);
+                left=new_application(&V, code=='0' ? &K : &KI);
                 right=new_input_cont();
             }
 
@@ -653,7 +653,7 @@ static int apply_input_cont(struct Node *a)
 
                 node->left=left;
                 node->right=right;
-                node->apply=NULL;
+                node->apply=apply;
                 node->special=0;
 
                 node=next;
@@ -681,8 +681,8 @@ static int apply_input_cont(struct Node *a)
                     p=new_application(new_application(&V, (code&1) ? &KI : &K), p);
                 }
 
-                left=p->left;
-                right=p->right;
+                left=new_application(&V, p);
+                right=new_input_cont();
             }
 
             while(node)
@@ -691,7 +691,7 @@ static int apply_input_cont(struct Node *a)
 
                 node->left=left;
                 node->right=right;
-                node->apply=NULL;
+                node->apply=apply;
                 node->special=0;
 
                 node=next;
@@ -1521,5 +1521,5 @@ int main(int argc, char *argv[])
 
     reduce(program);
 
-    return 126;
+    return program->apply==&apply_output_stop ? 0 : 126;
 }
