@@ -37,84 +37,123 @@ enum IOMode
     IO_BLC8
 };
 
+enum OpCode
+{
+    OP_APPLY = 0x00,
+    OP_BC    = 0x08,
+    OP_BCx   = 0x04,
+    OP_BCxy  = 0x02,
+    OP_BCxyz = 0x01,
+    OP_S     = 0x020C,
+    OP_Sx    = 0x0106,
+    OP_Sxy   = 0x0083,
+    OP_B     = 0x14,
+    OP_Bx    = 0x0A,
+    OP_Bxy   = 0x05,
+    OP_C     = 0x1C,
+    OP_Cx    = 0x0E,
+    OP_Cxy   = 0x07,
+    OP_V     = 0x24,
+    OP_Vx    = 0x12,
+    OP_Vxy   = 0x09,
+    OP_K     = 0x16,
+    OP_Kx    = 0x0B,
+    OP_O     = 0x1A,
+    OP_Ox    = 0x0D,
+    OP_W     = 0x1E,
+    OP_Wx    = 0x0F,
+    OP_T     = 0x22,
+    OP_Tx    = 0x11,
+    OP_I     = 0xF013,
+    OP_M     = 0x15,
+    OP_OUT_C = 0x17,
+    OP_IN_C  = 0x19, // 11001  |
+    OP_IN_V  = 0x1B, // 11011  |__ 110x1
+    OP_OUT_S = 0x1D,
+    OP_Z     = 0x1F,
+    OP_X     = 0x10, // Stoppers must end with 0000
+    OP_Y     = 0x20,
+};
+
 struct Node
 {
     struct Node   *next;
     struct Node   *left;
     struct Node   *right;
-    int          (*apply)(struct Node *a);
-    unsigned int   special:1;
+    unsigned int   opcode:31;
     unsigned int   mark:1;
-    unsigned int   index:30;
 };
 
-struct ProtectedNode
+static inline int is_special(struct Node *p)
 {
-    struct ProtectedNode *next;
-    struct Node          *node;
-};
+    return (p->opcode&0x3D)==0x19;
+}
 
 #ifndef GC_EVERY
 # define GC_EVERY 25000
 #endif
 
+struct ProtectedNode
+{
+    struct ProtectedNode *next;
+    struct Node *node;
+};
+
 // Global variables
 // {
-static struct ProtectedNode *protected_nodes=NULL;
-static struct Node *special_node_list=NULL; // INPUT_CONT and INPUT_CHAR nodes, ".left" is used for chaining
+struct ProtectedNode *protected_nodes=NULL;
+static struct Node *special_node_list=NULL; // INPUT_CONT and INPUT_VAL nodes, ".left" is used for chaining
 static struct Node *all_node_list=NULL; // All nodes (including special ones), ".next" is used for chaining
 static enum IOMode io_mode=IO_AUTO;
 // }
 
 static void reduce(struct Node *expr);
 
-static int apply_I(struct Node *a);
-static int apply_K(struct Node *a);
-static int apply_Kx(struct Node *a);
-static int apply_S(struct Node *a);
-static int apply_Sx(struct Node *a);
-static int apply_Sxy(struct Node *a);
-static int apply_B(struct Node *a);
-static int apply_Bx(struct Node *a);
-static int apply_Bxy(struct Node *a);
-static int apply_C(struct Node *a);
-static int apply_Cx(struct Node *a);
-static int apply_Cxy(struct Node *a);
-static int apply_O(struct Node *a);
-static int apply_Ox(struct Node *a);
-static int apply_Wx(struct Node *a);
-static int apply_KI(struct Node *a);
-static int apply_KIx(struct Node *a);
-static int apply_M(struct Node *a);
-static int apply_T(struct Node *a);
-static int apply_Tx(struct Node *a);
-static int apply_BC(struct Node *a);
-static int apply_BCx(struct Node *a);
-static int apply_BCxy(struct Node *a);
-static int apply_BCxyz(struct Node *a);
-static int apply_V(struct Node *a);
-static int apply_Vx(struct Node *a);
-static int apply_Vxy(struct Node *a);
-static int apply_Q3(struct Node *a);
-static int apply_Q3x(struct Node *a);
-static int apply_Q3xy(struct Node *a);
-static int apply_D(struct Node *a);
-static int apply_Dx(struct Node *a);
-static int apply_Dxy(struct Node *a);
-static int apply_Dxyz(struct Node *a);
-static int apply_input_cont(struct Node *a);
-static int apply_input_char(struct Node *a);
-static int apply_output_cont(struct Node *a);
-static int apply_output_stop(struct Node *a);
-static int apply_atom_X(struct Node *a);
-static int apply_atom_Y(struct Node *a);
+typedef void (*apply_fn)(struct Node *);
+
+static void apply_BCxyz(struct Node *a);
+static void apply_Sxy(struct Node *a);
+static void apply_Bxy(struct Node *a);
+static void apply_Cxy(struct Node *a);
+static void apply_Vxy(struct Node *a);
+static void apply_Kx(struct Node *a);
+static void apply_Ox(struct Node *a);
+static void apply_Wx(struct Node *a);
+static void apply_Tx(struct Node *a);
+static void apply_I(struct Node *a);
+static void apply_M(struct Node *a);
+static void apply_output_cont(struct Node *a);
+static void apply_output_stop(struct Node *a);
+static void apply_input_cont(struct Node *a);
+static void apply_input_val(struct Node *a);
+static void apply_atom_Z(struct Node *a);
+
+static const apply_fn apply_functions[]=
+{
+    apply_BCxyz,
+    apply_Sxy,
+    apply_Bxy,
+    apply_Cxy,
+    apply_Vxy,
+    apply_Kx,
+    apply_Ox,
+    apply_Wx,
+    apply_Tx,
+    apply_I,
+    apply_M,
+    apply_output_cont,
+    apply_input_cont,
+    apply_input_val,
+    apply_output_stop,
+    apply_atom_Z,
+};
 
 static void mark_node(struct Node *node)
 {
     if(node && !node->mark)
     {
         node->mark=1;
-        if(!node->special)
+        if(!is_special(node)) // 'left' has different meaning for special nodes
         {
             mark_node(node->left);
             mark_node(node->right);
@@ -124,9 +163,9 @@ static void mark_node(struct Node *node)
 
 static void gc(void)
 {
-    // Mark all protected nodes and all their subtrees
-    for(struct ProtectedNode *p=protected_nodes; p!=NULL; p=p->next)
-        mark_node(p->node);
+    // Mark all protected nodes and their children
+    for(struct ProtectedNode *pn=protected_nodes; pn!=NULL; pn=pn->next)
+        mark_node(pn->node);
 
     struct Node **pp;
 
@@ -166,22 +205,20 @@ static void gc(void)
             ++kept;
         }
     }
-    //fprintf(stderr, "GC: %u freed, %u kept\n", freed, kept);
+    //fprintf(stderr, "GC: %u freed, %u kept, sp=%u\n", freed, kept, stack_size-1);
 }
 
-static inline struct Node *new_node(struct Node *left, struct Node *right, int (*apply)(struct Node *a), int special)
+static inline struct Node *new_node(struct Node *left, struct Node *right, unsigned int opcode)
 {
     struct Node *p=(struct Node *)malloc(sizeof(struct Node));
     p->next=all_node_list;
     p->left=left;
     p->right=right;
-    p->apply=apply;
-    p->special=special;
+    p->opcode=opcode;
     p->mark=0;
-    p->index=0;
     all_node_list=p;
 
-    if(special)
+    if(is_special(p))
     {
         p->left=special_node_list;
         special_node_list=p;
@@ -191,19 +228,22 @@ static inline struct Node *new_node(struct Node *left, struct Node *right, int (
 }
 
 // Combinators. Statically allocated, not chained by ".next" and thus they can't become victims of GC.
-static struct Node I={NULL, NULL, NULL, apply_I, 0, 0};
-static struct Node K={NULL, NULL, NULL, apply_K, 0, 0};
-static struct Node S={NULL, NULL, NULL, apply_S, 0, 0};
-static struct Node B={NULL, NULL, NULL, apply_B, 0, 0};
-static struct Node C={NULL, NULL, NULL, apply_C, 0, 0};
-static struct Node O={NULL, NULL, NULL, apply_O, 0, 0};
-static struct Node KI={NULL, NULL, NULL, apply_KI, 0, 0};
-static struct Node M={NULL, NULL, NULL, apply_M, 0, 0};
-static struct Node T={NULL, NULL, NULL, apply_T, 0, 0};
-static struct Node BC={NULL, NULL, NULL, apply_BC, 0, 0};
-static struct Node V={NULL, NULL, NULL, apply_V, 0, 0};
-static struct Node Q3={NULL, NULL, NULL, apply_Q3, 0, 0};
-static struct Node D={NULL, NULL, NULL, apply_D, 0, 0};
+static struct Node I={NULL, NULL, NULL, OP_I, 0};
+static struct Node K={NULL, NULL, NULL, OP_K, 0};
+static struct Node S={NULL, NULL, NULL, OP_S, 0};
+static struct Node B={NULL, NULL, NULL, OP_B, 0};
+static struct Node C={NULL, NULL, NULL, OP_C, 0};
+static struct Node O={NULL, NULL, NULL, OP_O, 0};
+static struct Node KI={NULL, &K, &I, OP_APPLY, 0};
+static struct Node M={NULL, NULL, NULL, OP_M, 0};
+static struct Node T={NULL, NULL, NULL, OP_T, 0};
+static struct Node BC={NULL, NULL, NULL, OP_BC, 0};
+static struct Node V={NULL, NULL, NULL, OP_V, 0};
+
+static struct Node X={NULL, NULL, NULL, OP_X, 0};
+static struct Node Y={NULL, NULL, NULL, OP_Y, 0};
+static struct Node Z={NULL, NULL, NULL, OP_Z, 0};
+
 
 static inline struct Node *new_combinator(char ch)
 {
@@ -214,26 +254,20 @@ static inline struct Node *new_combinator(char ch)
         return &K;
     else if(ch=='s')
         return &S;
-    else if(ch=='b')
-        return &B;
-    else if(ch=='c')
-        return &C;
     else
         return NULL;
 }
 
 static inline struct Node *new_application(struct Node *left, struct Node *right)
 {
-    return new_node(left, right, NULL, 0);
+    return new_node(left, right, OP_APPLY);
 }
 
 static inline struct Node *new_variable(unsigned int index)
 {
-    // Variable node is like an application node but with both 'left' and 'right' set to NULL.
-    // 'index' is de Bruijn zero-based
-    struct Node *p=new_node(NULL, NULL, NULL, 0);
-    p->index=index;
-    return p;
+    // Variables are temporary nodes existing before bracket abstraction is finished
+    // Variable node OPCODE is (index+1)<<8
+    return new_node(NULL, NULL, (index+1)<<8);
 }
 
 static inline void replace_application(struct Node *a, struct Node *left, struct Node *right)
@@ -246,9 +280,8 @@ static inline void replace_node(struct Node *a, const struct Node *source)
 {
     a->left=source->left;
     a->right=source->right;
-    a->apply=source->apply;
-    a->special=source->special;
-    if(a->special)
+    a->opcode=source->opcode;
+    if(is_special(a))
     {
         a->left=special_node_list;
         special_node_list=a;
@@ -257,37 +290,27 @@ static inline void replace_node(struct Node *a, const struct Node *source)
 
 static inline struct Node *new_input_cont(void)
 {
-    return new_node(NULL, NULL, apply_input_cont, 1);
+    return new_node(NULL, NULL, OP_IN_C);
 }
 
-static inline struct Node *new_input_char(void)
+static inline struct Node *new_input_value(void)
 {
-    return new_node(NULL, NULL, apply_input_char, 1);
+    return new_node(NULL, NULL, OP_IN_V);
 }
 
 static inline struct Node *new_output_sink(void)
 {
-    return new_node(NULL, NULL, apply_output_cont, 0);
+    return new_node(NULL, NULL, OP_OUT_C);
 }
 
 static inline struct Node *new_output_stop(void)
 {
-    return new_node(NULL, NULL, apply_output_stop, 0);
-}
-
-static inline struct Node *new_atom_X(void)
-{
-    return new_node(NULL, NULL, apply_atom_X, 0);
-}
-
-static inline struct Node *new_atom_Y(void)
-{
-    return new_node(NULL, NULL, apply_atom_Y, 0);
+    return new_node(NULL, NULL, OP_OUT_S);
 }
 
 // Find all nodes, remove them from the hash table, chain together into single-linked list
 // and return the head of the list (and in the darkness bind them, of course)
-static struct Node *find_special_nodes(int (*apply)(struct Node *a))
+static struct Node *find_special_nodes(unsigned int opcode)
 {
     struct Node *res=NULL;
 
@@ -295,7 +318,7 @@ static struct Node *find_special_nodes(int (*apply)(struct Node *a))
     while(*pp!=NULL)
     {
         struct Node *p=*pp;
-        if(p->apply==apply)
+        if(p->opcode==opcode)
         {
             *pp=p->left;
             p->left=res;
@@ -309,447 +332,77 @@ static struct Node *find_special_nodes(int (*apply)(struct Node *a))
     return res;
 }
 
-static int apply_I(struct Node *a)
-{
-    replace_node(a, a->right);
-    return 0;
-}
-
-static int apply_K(struct Node *a)
-{
-#ifdef OPTIMIZE_KI_RUN
-    if(a->right->apply==apply_I)
-    {
-        a->apply=apply_KI;
-        return 0;
-    }
-#endif
-    a->apply=apply_Kx;
-    return 0;
-}
-
-static int apply_Kx(struct Node *a)
-{
-    replace_node(a, a->left->right);
-    return 0;
-}
-
-static int apply_S(struct Node *a)
-{
-#ifdef OPTIMIZE_SI_RUN
-    if(a->right->apply==apply_I)
-    {
-        a->apply=apply_O;
-        return 0;
-    }
-#endif
-#ifdef OPTIMIZE_KI_RUN
-    if(a->right->apply==apply_K)
-    {
-        a->apply=apply_KI;
-        return 0;
-    }
-#endif
-
-    a->apply=apply_Sx;
-    return 0;
-}
-
-static int apply_Sx(struct Node *a)
-{
-#ifdef OPTIMIZE_SxI_RUN
-    if(a->right->apply==apply_I)
-    {
-        a->apply=apply_Wx;
-        return 0;
-    }
-#endif
-
-    a->apply=apply_Sxy;
-    return 0;
-}
-
-
-static int apply_Sxy(struct Node *a)
-{
-    replace_application(a, new_application(a->left->left->right, a->right), new_application(a->left->right, a->right));
-    return 0;
-}
-
-static int apply_B(struct Node *a)
-{
-#ifdef OPTIMIZE_BC_RUN
-    if(a->right->apply==apply_C)
-    {
-        a->apply=apply_BC;
-        return 0;
-    }
-#endif
-#ifdef OPTIMIZE_Q3_RUN
-    if(a->right->apply==apply_T)
-    {
-        a->apply=apply_Q3;
-        return 0;
-    }
-#endif
-#ifdef OPTIMIZE_D_RUN
-    if(a->right->apply==apply_B)
-    {
-        a->apply=apply_D;
-        return 0;
-    }
-#endif
-
-    a->apply=apply_Bx;
-    return 0;
-}
-
-static int apply_Bx(struct Node *a)
-{
-#ifdef OPTIMIZE_V_RUN
-    if(a->left->right->apply==apply_C && a->right->apply==apply_T)
-    {
-        a->apply=apply_V;
-        return 0;
-    }
-#endif
-
-    a->apply=apply_Bxy;
-    return 0;
-}
-
-static int apply_Bxy(struct Node *a)
-{
-    replace_application(a, a->left->left->right, new_application(a->left->right, a->right));
-    return 0;
-}
-
-static int apply_C(struct Node *a)
-{
-#ifdef OPTIMIZE_CI_RUN
-    if(a->right->apply==apply_I)
-    {
-        a->apply=apply_T;
-        return 0;
-    }
-#endif
-
-    a->apply=apply_Cx;
-    return 0;
-}
-
-static int apply_Cx(struct Node *a)
-{
-    a->apply=apply_Cxy;
-    return 0;
-}
-
-static int apply_Cxy(struct Node *a)
-{
-    replace_application(a, new_application(a->left->left->right, a->right), a->left->right);
-    return 0;
-}
-
-static int apply_O(struct Node *a)
-{
-#ifdef OPTIMIZE_M_RUN
-    if(a->right->apply==apply_I)
-    {
-        a->apply=apply_M;
-        return 0;
-    }
-#endif
-    a->apply=apply_Ox;
-    return 0;
-}
-
-static int apply_Ox(struct Node *a)
-{
-    replace_application(a, a->right, new_application(a->left->right, a->right));
-    return 0;
-}
-
-static int apply_Wx(struct Node *a)
-{
-    replace_application(a, new_application(a->left->left->right, a->right), a->right);
-    return 0;
-}
-
-static int apply_KI(struct Node *a)
-{
-    a->apply=apply_KIx;
-    return 0;
-}
-
-static int apply_KIx(struct Node *a)
-{
-    replace_node(a, a->right);
-    return 0;
-}
-
-static int apply_M(struct Node *a)
-{
-    a->left=a->right;
-    return 0;
-}
-
-static int apply_T(struct Node *a)
-{
-    a->apply=apply_Tx;
-    return 0;
-}
-
-static int apply_Tx(struct Node *a)
-{
-    replace_application(a, a->right, a->left->right);
-    return 0;
-}
-
-static int apply_BC(struct Node *a)
-{
-#ifdef OPTIMIZE_V_RUN
-    if(a->right->apply==apply_T)
-    {
-        a->apply=apply_V;
-        return 0;
-    }
-#endif
-    a->apply=apply_BCx;
-    return 0;
-}
-
-static int apply_BCx(struct Node *a)
-{
-    a->apply=apply_BCxy;
-    return 0;
-}
-
-static int apply_BCxy(struct Node *a)
-{
-    a->apply=apply_BCxyz;
-    return 0;
-}
-
-static int apply_BCxyz(struct Node *a)
+static void apply_BCxyz(struct Node *a)
 {
     replace_application(a, new_application(new_application(a->left->left->left->right, a->left->left->right), a->right), a->left->right);
-    return 0;
 }
 
-static int apply_V(struct Node *a)
+static void apply_Sxy(struct Node *a)
 {
-    a->apply=apply_Vx;
-    return 0;
+    replace_application(a, new_application(a->left->left->right, a->right), new_application(a->left->right, a->right));
 }
 
-static int apply_Vx(struct Node *a)
+static void apply_Bxy(struct Node *a)
 {
-    a->apply=apply_Vxy;
-    return 0;
+    replace_application(a, a->left->left->right, new_application(a->left->right, a->right));
 }
 
-static int apply_Vxy(struct Node *a)
+static void apply_Cxy(struct Node *a)
+{
+    replace_application(a, new_application(a->left->left->right, a->right), a->left->right);
+}
+
+static void apply_Vxy(struct Node *a)
 {
     replace_application(a, new_application(a->right, a->left->left->right), a->left->right);
-    return 0;
 }
 
-static int apply_Q3(struct Node *a)
+static void apply_Kx(struct Node *a)
 {
-    a->apply=apply_Q3x;
-    return 0;
+    replace_node(a, a->left->right);
 }
 
-static int apply_Q3x(struct Node *a)
+static void apply_Ox(struct Node *a)
 {
-    a->apply=apply_Q3xy;
-    return 0;
+    replace_application(a, a->right, new_application(a->left->right, a->right));
 }
 
-static int apply_Q3xy(struct Node *a)
+static void apply_Wx(struct Node *a)
 {
-    replace_application(a, a->right, new_application(a->left->left->right, a->left->right));
-    return 0;
+    replace_application(a, new_application(a->left->left->right, a->right), a->right);
 }
 
-static int apply_D(struct Node *a)
+static void apply_Tx(struct Node *a)
 {
-    a->apply=apply_Dx;
-    return 0;
+    replace_application(a, a->right, a->left->right);
 }
 
-static int apply_Dx(struct Node *a)
+static void apply_I(struct Node *a)
 {
-    a->apply=apply_Dxy;
-    return 0;
+    replace_node(a, a->right);
 }
 
-static int apply_Dxy(struct Node *a)
+static void apply_M(struct Node *a)
 {
-    a->apply=apply_Dxyz;
-    return 0;
+    a->left=a->right;
 }
 
-static int apply_Dxyz(struct Node *a)
-{
-    replace_application(a, new_application(a->left->left->left->right, a->left->left->right), new_application(a->left->right, a->right));
-    return 0;
-}
-
-static int apply_input_cont(struct Node *a)
-{
-    struct Node *node=find_special_nodes(apply_input_cont);
-    if(!node)
-        return 0;
-
-    switch(io_mode)
-    {
-    case IO_LAZYK:
-        {
-            struct Node *left=new_application(&V, new_input_char());
-            struct Node *right=new_input_cont();
-
-            while(node)
-            {
-                struct Node *next=node->left;
-
-                node->left=left;
-                node->right=right;
-                node->apply=NULL;
-                node->special=0;
-
-                node=next;
-            }
-        }
-        break;
-
-    case IO_BLC:
-        {
-            int code;
-            for(;;)
-            {
-                code=fgetc(stdin);
-                if(code=='0' || code=='1' || code==EOF)
-                    break;
-            }
-
-            struct Node *left=NULL;
-            struct Node *right=NULL;
-            int (*apply)(struct Node *)=NULL;
-
-            if(code==EOF)
-            {
-                apply=&apply_KI;
-            }
-            else
-            {
-                left=new_application(&V, code=='0' ? &K : &KI);
-                right=new_input_cont();
-            }
-
-            while(node)
-            {
-                struct Node *next=node->left;
-
-                node->left=left;
-                node->right=right;
-                node->apply=apply;
-                node->special=0;
-
-                node=next;
-            }
-        }
-        break;
-
-    case IO_BLC8:
-        {
-            int code=fgetc(stdin);
-
-            struct Node *left=NULL;
-            struct Node *right=NULL;
-            int (*apply)(struct Node *)=NULL;
-
-            if(code==EOF)
-            {
-                apply=&apply_KI;
-            }
-            else
-            {
-                struct Node *p=&KI;
-                for(int i=0; i<8; ++i, code>>=1)
-                {
-                    p=new_application(new_application(&V, (code&1) ? &KI : &K), p);
-                }
-
-                left=new_application(&V, p);
-                right=new_input_cont();
-            }
-
-            while(node)
-            {
-                struct Node *next=node->left;
-
-                node->left=left;
-                node->right=right;
-                node->apply=apply;
-                node->special=0;
-
-                node=next;
-            }
-        }
-        break;
-    }
-
-    return 0;
-}
-
-static int apply_input_char(struct Node *a)
-{
-    struct Node *node=find_special_nodes(apply_input_char);
-    if(!node)
-        return 0;
-
-    int code=fgetc(stdin);
-    if(code<0 || code>255)
-        code=256;
-
-    struct Node *donor=&KI;
-    for(int i=0; i<code; ++i)
-    {
-        donor=new_application(new_application(&S, &B), donor);
-    }
-
-    while(node)
-    {
-        struct Node *next=node->left;
-
-        node->left=donor->left;
-        node->right=donor->right;
-        node->apply=donor->apply;
-        node->special=0;
-
-        node=next;
-    }
-
-    return 0;
-}
-
-static int apply_output_cont(struct Node *a)
+static void apply_output_cont(struct Node *a)
 {
     switch(io_mode)
     {
     case IO_LAZYK:
         {
-            struct Node *n=new_application(new_application(a->right, new_atom_X()), new_atom_Y());
+            struct Node *n=new_application(new_application(a->right, &Z), &X);
             reduce(n);
 
             unsigned int code=0;
-            while(!n->apply && n->right->apply==apply_atom_X && code<256+126)
+            while(n->opcode==OP_APPLY && n->right->opcode==OP_Z && code<256+126)
             {
                 ++code;
                 n=n->left;
             }
-            if(n->apply!=apply_atom_Y)
+            if(n->opcode!=OP_X)
                 code=256+126;
 
             if(code<256)
@@ -769,12 +422,12 @@ static int apply_output_cont(struct Node *a)
 
     case IO_BLC:
         {
-            struct Node *n=new_application(new_application(a->right, new_atom_X()), new_atom_Y());
+            struct Node *n=new_application(new_application(a->right, &X), &Y);
             reduce(n);
 
-            if(n->apply==apply_atom_X)
+            if(n->opcode==OP_X)
                 fputc('0', stdout);
-            else if(n->apply==apply_atom_Y)
+            else if(n->opcode==OP_Y)
                 fputc('1', stdout);
             else
                 exit(126);
@@ -794,13 +447,13 @@ static int apply_output_cont(struct Node *a)
             struct Node *l=a->right;
             for(int i=0; i<8; ++i)
             {
-                struct Node *n=new_application(l, new_application(new_application(&V, new_atom_X()), new_atom_Y()));
+                struct Node *n=new_application(l, new_application(new_application(&V, &X), &Y));
                 reduce(n);
-                if(n->left->apply==apply_atom_X)
+                if(n->left->opcode==OP_X)
                 {
                     code=2*code;
                 }
-                else if(n->left->apply==apply_atom_Y)
+                else if(n->left->opcode==OP_Y)
                 {
                     code=2*code+1;
                 }
@@ -821,74 +474,178 @@ static int apply_output_cont(struct Node *a)
         break;
 
     }
-    return 0;
 }
 
-static int apply_output_stop(struct Node *a)
+static void apply_output_stop(struct Node *a)
 {
     exit(0);
 }
 
-static int apply_atom_X(struct Node *a)
+static void apply_atom_Z(struct Node *a)
 {
-    if(io_mode==IO_LAZYK)
+    replace_application(a, a->right, a->left);
+}
+
+static void apply_input_cont(struct Node *a)
+{
+    struct Node *node=find_special_nodes(OP_IN_C);
+    if(!node)
+        return;
+
+    switch(io_mode)
     {
-        replace_application(a, a->right, a->left);
-        return 0;
-    }
-    else
-    {
-        return 1;
+    case IO_LAZYK:
+        {
+            struct Node *left=new_application(&V, new_input_value());
+            struct Node *right=new_input_cont();
+
+            while(node)
+            {
+                struct Node *next=node->left;
+
+                node->left=left;
+                node->right=right;
+                node->opcode=OP_APPLY;
+
+                node=next;
+            }
+        }
+        break;
+
+    case IO_BLC:
+        {
+            int code;
+            for(;;)
+            {
+                code=fgetc(stdin);
+                if(code=='0' || code=='1' || code==EOF)
+                    break;
+            }
+
+            struct Node *left=NULL;
+            struct Node *right=NULL;
+
+            if(code==EOF)
+            {
+                left=&K;
+                right=&I;
+            }
+            else
+            {
+                left=new_application(&V, code=='0' ? &K : &KI);
+                right=new_input_cont();
+            }
+
+            while(node)
+            {
+                struct Node *next=node->left;
+
+                node->left=left;
+                node->right=right;
+                node->opcode=OP_APPLY;
+
+                node=next;
+            }
+        }
+        break;
+
+    case IO_BLC8:
+        {
+            int code=fgetc(stdin);
+
+            struct Node *left=NULL;
+            struct Node *right=NULL;
+
+            if(code==EOF)
+            {
+                left=&K;
+                right=&I;
+            }
+            else
+            {
+                struct Node *p=&KI;
+                for(int i=0; i<8; ++i, code>>=1)
+                {
+                    p=new_application(new_application(&V, (code&1) ? &KI : &K), p);
+                }
+
+                left=new_application(&V, p);
+                right=new_input_cont();
+            }
+
+            while(node)
+            {
+                struct Node *next=node->left;
+
+                node->left=left;
+                node->right=right;
+                node->opcode=OP_APPLY;
+
+                node=next;
+            }
+        }
+        break;
     }
 }
 
-static int apply_atom_Y(struct Node *a)
+static void apply_input_val(struct Node *a)
 {
-    return 1;
+    struct Node *node=find_special_nodes(OP_IN_V);
+    if(!node)
+        return;
+
+    int code=fgetc(stdin);
+    if(code<0 || code>255)
+        code=256;
+
+    struct Node *donor=&KI;
+    for(int i=0; i<code; ++i)
+    {
+        donor=new_application(new_application(&S, &B), donor);
+    }
+
+    while(node)
+    {
+        struct Node *next=node->left;
+
+        node->left=donor->left;
+        node->right=donor->right;
+        node->opcode=donor->opcode;
+
+        node=next;
+    }
 }
 
 static struct Node *new_application_load(struct Node *left, struct Node *right)
 {
 #ifdef OPTIMIZE_SI_LOAD
-    if(left->apply==apply_S && right->apply==apply_I)
+    if(left->opcode==OP_S && right->opcode==OP_I)
         return &O;
 #endif
 
-#ifdef OPTIMIZE_KI_LOAD
-    if((left->apply==apply_K && right->apply==apply_I) || (left->apply==apply_S && right->apply==apply_K))
-        return &KI;
+#ifdef OPTIMIZE_SxI_LOAD
+    if(left->opcode==OP_APPLY && left->left->opcode==OP_S && right->opcode==OP_I)
+        return new_node(left, right, OP_Wx);
 #endif
 
 #ifdef OPTIMIZE_M_LOAD
-    if(left->apply==apply_O && right->apply==apply_I)
+    if(left->opcode==OP_O && right->opcode==OP_I)
         return &M;
 #endif
 
 #ifdef OPTIMIZE_CI_LOAD
-    if(left->apply==apply_C && right->apply==apply_I)
+    if(left->opcode==OP_C && right->opcode==OP_I)
         return &T;
 #endif
 
 #ifdef OPTIMIZE_BC_LOAD
-    if(left->apply==apply_B && right->apply==apply_C)
+    if(left->opcode==OP_B && right->opcode==OP_C)
         return &BC;
 #endif
 
 #ifdef OPTIMIZE_V_LOAD
-//    if(!left->apply && left->left && left->right && left->left->apply==apply_B && left->right->apply==apply_C && right->apply==apply_T)
-//        return &V;
-    if(left->apply==apply_BC && right->apply==apply_T)
+    if(left->opcode==OP_BC && right->opcode==OP_T)
         return &V;
-#endif
-
-#ifdef OPTIMIZE_Q3_LOAD
-    if(left->apply==apply_B && right->apply==apply_T)
-        return &Q3;
-#endif
-
-#ifdef OPTIMIZE_D_LOAD
-    if(left->apply==apply_B && right->apply==apply_B)
-        return &D;
 #endif
 
     return new_application(left, right);
@@ -938,7 +695,7 @@ static struct Node *parse_lazyk_program(FILE *f)
             }
             n_stack[n_stack_size++]=0;
         }
-        else if(ch=='i' || ch=='k' || ch=='s' || ch=='b' || ch=='c') // extended Lazy K - B and C combinators are added
+        else if(ch=='i' || ch=='k' || ch=='s')
         {
             if(op_stack_size>=op_stack_cap)
             {
@@ -977,12 +734,12 @@ static struct Node *parse_lazyk_program(FILE *f)
 
 static inline int IS_A(const struct Node *p)
 {
-    return !p->apply && p->left && p->right;
+    return p->opcode==OP_APPLY;
 }
 
 static inline int IS_VAR(const struct Node *p)
 {
-    return !p->apply && !p->left && !p->right;
+    return p->opcode>0 && (p->opcode&0xFF)==0;
 }
 
 static int IS_COMB(const struct Node *p)
@@ -1016,8 +773,9 @@ static void adjust_variables(struct Node *p)
     }
     else if(IS_VAR(p))
     {
-        assert(p->index>0);
-        --p->index;
+        unsigned int index=(p->opcode>>8)-1;
+        assert(index>0);
+        p->opcode-=256;
     }
 }
 
@@ -1029,7 +787,7 @@ static int contains_variable_zero(const struct Node *p)
     }
     else if(IS_VAR(p))
     {
-        return p->index==0;
+        return p->opcode==256;
     }
     else
     {
@@ -1045,11 +803,11 @@ static int is_same(const struct Node *p, const struct Node *q)
     }
     else if(IS_VAR(p) && IS_VAR(q))
     {
-        return p->index==q->index;
+        return p->opcode==q->opcode;
     }
     else
     {
-        return p->apply!=NULL && q->apply!=NULL && p->apply==q->apply;
+        return p->opcode==q->opcode;
     }
 }
 
@@ -1058,7 +816,7 @@ static struct Node *eliminate_lambda(struct Node *p)
     // It uses some Tromp rules as well as some others
 
     // Tromp rule 1: lambda x . S K y -> S K
-    if(IS_A(p) && IS_A(p->left) && p->left->left->apply==&apply_S && p->left->right->apply==&apply_K)
+    if(IS_A(p) && IS_A(p->left) && p->left->left->opcode==OP_S && p->left->right->opcode==OP_K)
     {
         return &KI;
     }
@@ -1068,19 +826,19 @@ static struct Node *eliminate_lambda(struct Node *p)
         return new_application_load(&K, p);
     }
     // Common rule 3: lambda x . x -> I
-    else if(IS_VAR(p) && p->index==0)
+    else if(IS_VAR(p) && contains_variable_zero(p))
     {
         return &I;
     }
     // Common rule 4: lambda x . M x (where M doesn't contain variable 0) -> M
-    else if(IS_A(p) && !contains_variable_zero(p->left) && IS_VAR(p->right) && p->right->index==0)
+    else if(IS_A(p) && !contains_variable_zero(p->left) && IS_VAR(p->right) && contains_variable_zero(p->right))
     {
         return p->left;
     }
 
     // Tromp rule 5: lambda x . x M x -> S S K x M
     // Not sure about its usefullness
-    else if(IS_A(p) && IS_A(p->left) && IS_VAR(p->left->left) && p->left->left->index==0 && IS_VAR(p->right) && p->right->index==0)
+    else if(IS_A(p) && IS_A(p->left) && IS_VAR(p->left->left) && contains_variable_zero(p->left->left) && IS_VAR(p->right) && contains_variable_zero(p->right))
     {
         return eliminate_lambda(
             new_application_load(
@@ -1291,142 +1049,82 @@ static struct Node *parse_blc8_program(FILE *f)
     return parse_blc8_subprogram(&buf, 0);
 }
 
-static inline const char *comb(struct Node *p)
-{
-    if(p->apply==apply_I)
-        return "I";
-    else if(p->apply==apply_K)
-        return "K";
-    else if(p->apply==apply_Kx)
-        return "Kx";
-    else if(p->apply==apply_S)
-        return "S";
-    else if(p->apply==apply_Sx)
-        return "Sx";
-    else if(p->apply==apply_Sxy)
-        return "Sxy";
-    else if(p->apply==apply_B)
-        return "B";
-    else if(p->apply==apply_Bx)
-        return "Bx";
-    else if(p->apply==apply_Bxy)
-        return "Bxy";
-    else if(p->apply==apply_C)
-        return "C";
-    else if(p->apply==apply_Cx)
-        return "Cx";
-    else if(p->apply==apply_Cxy)
-        return "Cxy";
-    else if(p->apply==apply_O)
-        return "O";
-    else if(p->apply==apply_Ox)
-        return "Ox";
-    else if(p->apply==apply_Wx)
-        return "Wx";
-    else if(p->apply==apply_KI)
-        return "Ki";
-    else if(p->apply==apply_KIx)
-        return "Kix";
-    else if(p->apply==apply_M)
-        return "M";
-    else if(p->apply==apply_T)
-        return "T";
-    else if(p->apply==apply_Tx)
-        return "Tx";
-    else if(p->apply==apply_BC)
-        return "BC";
-    else if(p->apply==apply_BCx)
-        return "BCx";
-    else if(p->apply==apply_BCxy)
-        return "BCxy";
-    else if(p->apply==apply_BCxyz)
-        return "BCxyz";
-    else if(p->apply==apply_V)
-        return "V";
-    else if(p->apply==apply_Vx)
-        return "Vx";
-    else if(p->apply==apply_Vxy)
-        return "Vxy";
-    else if(p->apply==apply_Q3)
-        return "Q3";
-    else if(p->apply==apply_Q3x)
-        return "Q3x";
-    else if(p->apply==apply_Q3xy)
-        return "Q3xy";
-    else if(p->apply==apply_D)
-        return "D";
-    else if(p->apply==apply_Dx)
-        return "Dx";
-    else if(p->apply==apply_Dxy)
-        return "Dxy";
-    else if(p->apply==apply_Dxyz)
-        return "Dxyz";
-    else
-        return NULL;
-}
-
 static void reduce(struct Node *p)
 {
     // If the expression's root node is not Application then there's nothing we can do
     // to reduce it
-    if(p->apply)
+    if(p->opcode!=OP_APPLY)
         return;
 
-    // Protect root node (and, hence, all the tree) from GC
     struct ProtectedNode prot;
-    prot.next=protected_nodes;
     prot.node=p;
+    prot.next=protected_nodes;
     protected_nodes=&prot;
 
+    unsigned int stack_cap=1000;
     unsigned int stack_size=0;
-    unsigned int stack_cap=0;
-    struct Node **stack=NULL;
+    struct Node **stack=(struct Node **)malloc(stack_cap*sizeof(struct Node *));
 
-    int applies=0;
-    while(!p->apply || stack_size>0)
+    unsigned int applies=0;
+    while(p->opcode==OP_APPLY)
     {
-        if(!p->apply)
+        unsigned int op=p->left->opcode;
+        // Left subtree is an application as well - we need to go deeper
+        if(op==OP_APPLY)
         {
-            if(!p->left->apply)
+            if(stack_size==stack_cap)
             {
-                if(stack_size==stack_cap)
-                {
-                    stack_cap+=100;
-                    stack=(struct Node **)realloc(stack, stack_cap*sizeof(struct Node *));
-                    if(!stack)
-                        abort();
-                }
-                stack[stack_size++]=p;
-                p=p->left;
+                stack_cap*=2;
+                stack=(struct Node **)realloc(stack, stack_cap*sizeof(struct Node *));
             }
-            else
-            {
-#ifdef PROFILE_APPLICATION
-                const char *s1=comb(p->left);
-                const char *s2=comb(p->right);
-                if(s1 && s2)
-                    fprintf(stderr, "%s%s\n", s1, s2);
-#endif
-                if(p->left->apply(p))
-                    break;
-            }
+            stack[stack_size]=p;
+            ++stack_size;
 
-            ++applies;
-            if(applies==GC_EVERY)
-            {
-                gc();
-                applies=0;
-            }
+            p=p->left;
+        }
+        // Stopper atoms
+        else if((op&0x0F)==0)
+        {
+            break;
         }
         else
         {
-            p=stack[--stack_size];
+            // Trivial opcode
+            if((op&0x01)==0)
+            {
+#if 0
+                static const unsigned int mod[3]={0, OP_Sxy^OP_Wx, OP_Sx^OP_O};
+
+                unsigned int opr=p->right->opcode;
+                p->opcode=(op>>1)^mod[((op&0x0F00)>>8)&((opr&0xF000)>>12)];
+#else
+                p->opcode=op>>1;
+#endif
+            }
+            // Non-trivial opcode with handler function
+            else
+            {
+                apply_functions[(op>>1)&0x0F](p);
+            }
+
+            if(p->opcode!=OP_APPLY && stack_size>0)
+            {
+                --stack_size;
+                p=stack[stack_size];
+            }
+        }
+
+        ++applies;
+        if(applies==GC_EVERY)
+        {
+            gc();
+            applies=0;
         }
     }
 
-    protected_nodes=prot.next;
-
     free(stack);
+
+    protected_nodes=prot.next;
 }
 
 static inline int is_lazyk_source(const char *filename)
@@ -1521,5 +1219,5 @@ int main(int argc, char *argv[])
 
     reduce(program);
 
-    return program->apply==&apply_output_stop ? 0 : 126;
+    return program->opcode==OP_OUT_S ? 0 : 126;
 }

@@ -1,9 +1,10 @@
-1. Global stack
++1. Global stack
 Use global stack (array of Node pointers). reduce() must return stack balanced.
 Numerals may be put on stack too (fixed positions at the top). GC: autoprotect
 everything that's on stack (so, the list of protected nodes and "immortal" flag
 become unneeded).
 EXPECTED PERFORMANCE INCREASE: NONE/VERY LOW
+ACTUAL PERFORMANCE INCREASE: NEGATIVE
 
 2. Custom allocator
 Do not use malloc/free for Node allocation. Allocate big chunks, chain all free
@@ -30,9 +31,11 @@ But would decrease performance of programs with input.
 EXPECTED PERFORMANCE INCREASE: NONE
 ACTUAL PERFORMANCE INCREASE: NONE
 
-
-Finally, I have to use Lazy K engine as a core of BLC(8) interpreter:
-1. First, convert LC expression to CL expression (I, K, S, B, C combinators).
-2. Different (more simple) input and output. No numerals.
-3. Probably, it would require to convert each output bit back to LC to perform
-eta reduction.
++6. uCode - opcode is actually a microcode
+OPCODEs. Most common op is >>1 (shift OPCODE right without side effects) which
+actually means 'consume arg because we're not ready for beta-reduction yet'. It's
+always followed by stack pop (because result is never an application).
+OPCODEs with bit0 set to '1' are special (with microprogram). High bits
+are used for shortcuts ((p->left->opcode>>N)&(p->right->opcode>>M))
+EXPECTED PERFORMANCE INCREASE: LOW
+ACTUAL PERFORMANCE INCREASE: NONE
