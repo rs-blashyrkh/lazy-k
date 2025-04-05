@@ -259,8 +259,8 @@ static struct Node T339={NULL, NULL, NULL, OP_T339, 0};
 static struct Node T329={NULL, NULL, NULL, OP_T329, 0};
 static struct Node T3157={NULL, NULL, NULL, OP_T3157, 0};
 
-#ifndef GC_EVERY
-# define GC_EVERY 25000
+#ifndef GC_THRESHOLD
+# define GC_THRESHOLD (1024*1024*1024)
 #endif
 
 struct ProtectedNode
@@ -275,6 +275,7 @@ struct ProtectedNode *protected_nodes=NULL;
 static struct Node *special_node_list=NULL; // INPUT_CONT and INPUT_VAL nodes, ".left" is used for chaining
 static struct Node *all_node_list=NULL; // All nodes (including special ones), ".next" is used for chaining
 static enum IOMode io_mode=IO_AUTO;
+static unsigned int num_allocations=0;
 // }
 
 static void reduce(struct Node *expr);
@@ -337,6 +338,7 @@ static void gc(void)
             ++kept;
         }
     }
+    num_allocations-=freed;
     //fprintf(stderr, "GC: %u freed, %u kept, sp=%u\n", freed, kept, stack_size-1);
 }
 
@@ -355,6 +357,8 @@ static inline struct Node *new_node(struct Node *left, struct Node *right, unsig
         p->left=special_node_list;
         special_node_list=p;
     }
+
+    ++num_allocations;
 
     return p;
 }
@@ -968,13 +972,10 @@ static struct Node *new_application_load(struct Node *left, struct Node *right)
         {OP_S,       OP_T5,     &T339},
         {OP_C,       OP_T21,    &T329},
         {OP_B,       OP_T55,    &T3157},
-
         {OP_S,       OP_T6,     &T55},
         {OP_K,       OP_K,      &T6},
-/*
-        {OP_K,      OP_T2,  &T4},
-        {OP_T6,     OP_T2,  &K},
-*/
+        {OP_K,       OP_T2,     &T4},
+//        {OP_T6,      OP_T2,     &K},
     };
 
     for(unsigned int i=0; i<sizeof(rules)/sizeof(rules[0]); ++i)
@@ -1405,7 +1406,6 @@ static void reduce(struct Node *p)
     unsigned int stack_size=0;
     struct Node **stack=(struct Node **)malloc(stack_cap*sizeof(struct Node *));
 
-    unsigned int applies=0;
     while(p->opcode==OP_APPLY)
     {
         unsigned int op=p->left->opcode;
@@ -1453,11 +1453,9 @@ static void reduce(struct Node *p)
             }
         }
 
-        ++applies;
-        if(applies==GC_EVERY)
+        if(num_allocations>=GC_THRESHOLD/48)
         {
             gc();
-            applies=0;
         }
     }
 
