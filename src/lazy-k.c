@@ -274,6 +274,7 @@ struct ProtectedNode
 struct ProtectedNode *protected_nodes=NULL;
 static struct Node *special_node_list=NULL; // INPUT_CONT and INPUT_VAL nodes, ".left" is used for chaining
 static struct Node *all_node_list=NULL; // All nodes (including special ones), ".next" is used for chaining
+static struct Node *free_node_list=NULL;
 static enum IOMode io_mode=IO_AUTO;
 static unsigned int num_allocations=0;
 // }
@@ -328,7 +329,10 @@ static void gc(void)
         if(!p->mark)
         {
             *pp=p->next;
-            free(p);
+
+            p->next=free_node_list;
+            free_node_list=p;
+
             ++freed;
         }
         else
@@ -344,7 +348,17 @@ static void gc(void)
 
 static inline struct Node *new_node(struct Node *left, struct Node *right, unsigned int opcode)
 {
-    struct Node *p=(struct Node *)malloc(sizeof(struct Node));
+    struct Node *p;
+    if(!free_node_list)
+    {
+        p=(struct Node *)malloc(sizeof(struct Node));
+    }
+    else
+    {
+        p=free_node_list;
+        free_node_list=p->next;
+    }
+
     p->next=all_node_list;
     p->left=left;
     p->right=right;
