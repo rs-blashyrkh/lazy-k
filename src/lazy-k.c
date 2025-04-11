@@ -47,11 +47,11 @@ enum OpCode
     OP_IN_C     = 0x01,
     OP_IN_V     = 0x03,
     // Stopper opcodes - reduction stops if one of them is the left child of application
-    OP_X        = 0x02,
-    OP_Y        = 0x06,
+    OP_ATOM_X   = 0x02,
+    OP_ATOM_Y   = 0x06,
     // Atom Z used for Lazy K mode output implementation. It effectively exchanges left and
     // right subtree
-    OP_Z        = 0x05,
+    OP_ATOM_Z   = 0x05,
     // Output continuation (all modes) and output stop (BLC-only)
     OP_OUT_C    = 0x07,
     OP_OUT_S    = 0x09,
@@ -82,7 +82,7 @@ enum OpCode
     OP_T200528  = 0x2F<<3, // S(KS) = BS = lambda xyzw . xyw(zw)
     OP_T129     = 0x31<<2, // KO = lambda xyz . z(yz)
     OP_T313     = 0x33<<2, // BT = lambda xyz . z(xy)
-    OP_T2155    = 0x35<<2, // S(KO) = lambda xyz . z(xyz)
+    OP_T2155    = 0x35<<2, // S(KO) = BO = lambda xyz . z(xyz)
     OP_T3627    = 0x37<<2, // ++ = SB = lambda xyz . y(xyz)
     OP_T5       = 0x39,    // SII = lambda x . xx
     OP_T27176   = 0x3B<<2, // SS = lambda xyz . yz(xyz)
@@ -99,6 +99,45 @@ enum OpCode
     OP_T339     = 0x51<<1, // S(SII) = lambda xy . yy(xy)
     OP_T329     = 0x53<<1, // C(T(KI)) = lambda xy . y(KI)x
     OP_T3157    = 0x55<<3, // B(BK) = lambda xyzw . xyz
+    OP_T15578   = 0x57<<2, // B(C(T(KI))) = lambda xyz . z(KI)(xy)
+    OP_T20      = 0x59,    // S(SII)I = lambda x . xxx
+    OP_T26787   = 0x5B<<2, // S(S(KS)T) = lambda xyz . zy(xyz)
+    OP_T46377   = 0x5D<<2, // S(BB(SII)) = lambda xyz . yy(xyz)
+    OP_T103     = 0x5F,    // S(SII)(K(KI)) = lambda x . xx(KI)
+    OP_T155     = 0x61,    // S(SII)(KK) = lambda x . xxK
+    OP_T320     = 0x63<<2, // CB = lambda xyz . y(xz)
+    OP_T25104   = 0x65<<3, // B(CB) = lambda xyzw . z(xyw)
+    OP_T8695    = 0x67<<3, // BKS = lambda xyzw . xw(zw)
+    OP_T511     = 0x69<<2, // S(BK) = lambda xyz . y(xy)
+    OP_T3397    = 0x6B<<2, // SV = lambda xyz . zy(xy)
+    OP_T530     = 0x6D<<1, // C(TK) = lambda x y . yKx
+    OP_T336     = 0x6F<<1, // S(SSK) = lambda xy . y(xy)y
+    OP_T8       = 0x71<<2, // BKK = lambda xyz . x
+    OP_T12076   = 0x73<<1, // 4 = SII(SBI) = lambda xy . x(x(x(xy)))
+    OP_T4056    = 0x75<<1, // S(SI) = lambda xy . xy(y(xy))
+    OP_T44556   = 0x77<<2, // S(KS)(SII) = BS(SII) = lambda xyz . xxz(yz)
+    OP_T25996   = 0x79<<2, // C(BS(SII)) = lambda xyz . yyz(xz)
+    OP_T64      = 0x7B<<1, // CB(SII) = lambda xy . x(yy)
+    OP_Y        = 0x7D,    // Y=SSI(CB(SII)): Yx = x(Yx), no normal form
+    OP_T25323   = 0x7F<<3, // BBB = lambda xyzw . x(yzw)
+    OP_T25242   = 0x81<<3, // C(BBB) = lambda xyzw . y(xzw)
+    OP_T323     = 0x83<<2, // BCB = C(BBB)T = lambda xyz . x(zy)
+    OP_T1982    = 0x85<<3, // B(BK)(BCB) = lambda xyzw . x(wy)
+    OP_T24      = 0x87<<3, // BK(BKK) = lambda xyzw . x
+    OP_T584     = 0x89<<1, // B(SI)(SII) = lambda xy . y(xxy)
+    OP_T41988   = 0x8B<<3, // BK(BB(SII)) = lambda xyzw . xx(zw)
+    OP_T297     = 0x8D<<2, // CV = lambda xyz . zyx
+    OP_T10      = 0x8F,    // TI = lambda x . xI
+    OP_T95      = 0x91<<1, // BT(SII) = lambda xy . y(xx)
+    OP_T9       = 0x93<<1, // K(SII) = lambda xy . yy
+    OP_T4212    = 0x95<<1, // S(CB(SII)) = lambda xy . y(xy(xy))
+    OP_T78      = 0x97<<3, // K(S(KK)) = lambda xyzw . yz
+    OP_T198     = 0x99<<2, // K(SBI) = lambda xyz . y(yz)
+    OP_T7       = 0x9B<<3, // K(K(KI)) = lambda xyzw . w
+    OP_T11      = 0x9D<<3, // K(KK) = lambda xyzw . z
+    OP_T58      = 0x9F<<1, // lambda xy . xyy
+    OP_T24648   = 0xA1<<3, // lambda xyzw . xz(yw)
+    OP_T365     = 0xA3<<1, // lambda xy . y(y(xy))
 };
 
 struct Node
@@ -139,7 +178,6 @@ static void apply_T298(struct Node *a);
 static void apply_T23988(struct Node *a);
 static void apply_T4(struct Node *a);
 static void apply_T21(struct Node *a);
-static void apply_T6(struct Node *a);
 static void apply_T55(struct Node *a);
 static void apply_T24652(struct Node *a);
 static void apply_T24299(struct Node *a);
@@ -165,6 +203,40 @@ static void apply_T203117(struct Node *a);
 static void apply_T339(struct Node *a);
 static void apply_T329(struct Node *a);
 static void apply_T3157(struct Node *a);
+static void apply_T15578(struct Node *a);
+static void apply_T20(struct Node *a);
+static void apply_T26787(struct Node *a);
+static void apply_T46377(struct Node *a);
+static void apply_T103(struct Node *a);
+static void apply_T155(struct Node *a);
+static void apply_T320(struct Node *a);
+static void apply_T25104(struct Node *a);
+static void apply_T8695(struct Node *a);
+static void apply_T511(struct Node *a);
+static void apply_T3397(struct Node *a);
+static void apply_T530(struct Node *a);
+static void apply_T336(struct Node *a);
+static void apply_T8(struct Node *a);
+static void apply_T12076(struct Node *a);
+static void apply_T4056(struct Node *a);
+static void apply_T44556(struct Node *a);
+static void apply_T25996(struct Node *a);
+static void apply_T64(struct Node *a);
+static void apply_Y(struct Node *a);
+static void apply_T25323(struct Node *a);
+static void apply_T25242(struct Node *a);
+static void apply_T323(struct Node *a);
+static void apply_T1982(struct Node *a);
+static void apply_T24(struct Node *a);
+static void apply_T584(struct Node *a);
+static void apply_T41988(struct Node *a);
+static void apply_T297(struct Node *a);
+static void apply_T10(struct Node *a);
+static void apply_T95(struct Node *a);
+static void apply_T4212(struct Node *a);
+static void apply_T58(struct Node *a);
+static void apply_T24648(struct Node *a);
+static void apply_T365(struct Node *a);
 
 static const apply_fn apply_functions[]=
 {
@@ -185,7 +257,7 @@ static const apply_fn apply_functions[]=
     apply_T23988,
     apply_T4,
     apply_T21,
-    apply_T6,
+    apply_K, // T6 = K K
     apply_T55,
     apply_T24652,
     apply_T24299,
@@ -210,13 +282,52 @@ static const apply_fn apply_functions[]=
     apply_T203117,
     apply_T339,
     apply_T329,
-    apply_T3157
+    apply_T3157,
+    apply_T15578,
+    apply_T20,
+    apply_T26787,
+    apply_T46377,
+    apply_T103,
+    apply_T155,
+    apply_T320,
+    apply_T25104,
+    apply_T8695,
+    apply_T511,
+    apply_T3397,
+    apply_T530,
+    apply_T336,
+    apply_T8,
+    apply_T12076,
+    apply_T4056,
+    apply_T44556,
+    apply_T25996,
+    apply_T64,
+    apply_Y,
+    apply_T25323,
+    apply_T25242,
+    apply_T323,
+    apply_T1982,
+    apply_T24,
+    apply_T584,
+    apply_T41988,
+    apply_T297,
+    apply_T10,
+    apply_T95,
+    apply_T5, // T9 = K T5
+    apply_T4212,
+    apply_T55, // T78 = K T55
+    apply_T98, // T198 = K T98
+    apply_T4,  // T7 = K T4
+    apply_K,  // T11 = K T6 = K(KK)
+    apply_T58,
+    apply_T24648,
+    apply_T365,
 };
 
 // Combinators. Statically allocated, not chained by ".next" and thus they can't become victims of GC.
-static struct Node X={NULL, NULL, NULL, OP_X, 0};
-static struct Node Y={NULL, NULL, NULL, OP_Y, 0};
-static struct Node Z={NULL, NULL, NULL, OP_Z, 0};
+static struct Node ATOM_X={NULL, NULL, NULL, OP_ATOM_X, 0};
+static struct Node ATOM_Y={NULL, NULL, NULL, OP_ATOM_Y, 0};
+static struct Node ATOM_Z={NULL, NULL, NULL, OP_ATOM_Z, 0};
 static struct Node OUT_CONT={NULL, NULL, NULL, OP_OUT_C, 0};
 static struct Node OUT_STOP={NULL, NULL, NULL, OP_OUT_S, 0};
 
@@ -258,6 +369,45 @@ static struct Node T203117={NULL, NULL, NULL, OP_T203117, 0};
 static struct Node T339={NULL, NULL, NULL, OP_T339, 0};
 static struct Node T329={NULL, NULL, NULL, OP_T329, 0};
 static struct Node T3157={NULL, NULL, NULL, OP_T3157, 0};
+static struct Node T15578={NULL, NULL, NULL, OP_T15578, 0};
+static struct Node T20={NULL, NULL, NULL, OP_T20, 0};
+static struct Node T26787={NULL, NULL, NULL, OP_T26787, 0};
+static struct Node T46377={NULL, NULL, NULL, OP_T46377, 0};
+static struct Node T103={NULL, NULL, NULL, OP_T103, 0};
+static struct Node T155={NULL, NULL, NULL, OP_T155, 0};
+static struct Node T320={NULL, NULL, NULL, OP_T320, 0};
+static struct Node T25104={NULL, NULL, NULL, OP_T25104, 0};
+static struct Node T8695={NULL, NULL, NULL, OP_T8695, 0};
+static struct Node T511={NULL, NULL, NULL, OP_T511, 0};
+static struct Node T3397={NULL, NULL, NULL, OP_T3397, 0};
+static struct Node T530={NULL, NULL, NULL, OP_T530, 0};
+static struct Node T336={NULL, NULL, NULL, OP_T336, 0};
+static struct Node T8={NULL, NULL, NULL, OP_T8, 0};
+static struct Node T12076={NULL, NULL, NULL, OP_T12076, 0};
+static struct Node T4056={NULL, NULL, NULL, OP_T4056, 0};
+static struct Node T44556={NULL, NULL, NULL, OP_T44556, 0};
+static struct Node T25996={NULL, NULL, NULL, OP_T25996, 0};
+static struct Node T64={NULL, NULL, NULL, OP_T64, 0};
+static struct Node Y={NULL, NULL, NULL, OP_Y, 0};
+static struct Node T25323={NULL, NULL, NULL, OP_T25323, 0};
+static struct Node T25242={NULL, NULL, NULL, OP_T25242, 0};
+static struct Node T323={NULL, NULL, NULL, OP_T323, 0};
+static struct Node T1982={NULL, NULL, NULL, OP_T1982, 0};
+static struct Node T24={NULL, NULL, NULL, OP_T24, 0};
+static struct Node T584={NULL, NULL, NULL, OP_T584, 0};
+static struct Node T41988={NULL, NULL, NULL, OP_T41988, 0};
+static struct Node T297={NULL, NULL, NULL, OP_T297, 0};
+static struct Node T10={NULL, NULL, NULL, OP_T10, 0};
+static struct Node T95={NULL, NULL, NULL, OP_T95, 0};
+static struct Node T9={NULL, NULL, NULL, OP_T9, 0};
+static struct Node T4212={NULL, NULL, NULL, OP_T4212, 0};
+static struct Node T78={NULL, NULL, NULL, OP_T78, 0};
+static struct Node T198={NULL, NULL, NULL, OP_T198, 0};
+static struct Node T7={NULL, NULL, NULL, OP_T7, 0};
+static struct Node T11={NULL, NULL, NULL, OP_T11, 0};
+static struct Node T58={NULL, NULL, NULL, OP_T58, 0};
+static struct Node T24648={NULL, NULL, NULL, OP_T24648, 0};
+static struct Node T365={NULL, NULL, NULL, OP_T365, 0};
 
 #ifndef GC_THRESHOLD
 # define GC_THRESHOLD (1024*1024*1024)
@@ -595,16 +745,16 @@ static void apply_output_cont(struct Node *a)
     {
     case IO_LAZYK:
         {
-            struct Node *n=new_application(new_application(a->right, &Z), &X);
+            struct Node *n=new_application(new_application(a->right, &ATOM_Z), &ATOM_X);
             reduce(n);
 
             unsigned int code=0;
-            while(n->opcode==OP_APPLY && n->right->opcode==OP_Z && code<256+126)
+            while(n->opcode==OP_APPLY && n->right->opcode==OP_ATOM_Z && code<256+126)
             {
                 ++code;
                 n=n->left;
             }
-            if(n->opcode!=OP_X)
+            if(n->opcode!=OP_ATOM_X)
                 code=256+126;
 
             if(code<256)
@@ -624,12 +774,12 @@ static void apply_output_cont(struct Node *a)
 
     case IO_BLC:
         {
-            struct Node *n=new_application(new_application(a->right, &X), &Y);
+            struct Node *n=new_application(new_application(a->right, &ATOM_X), &ATOM_Y);
             reduce(n);
 
-            if(n->opcode==OP_X)
+            if(n->opcode==OP_ATOM_X)
                 fputc('0', stdout);
-            else if(n->opcode==OP_Y)
+            else if(n->opcode==OP_ATOM_Y)
                 fputc('1', stdout);
             else
                 exit(126);
@@ -649,13 +799,13 @@ static void apply_output_cont(struct Node *a)
             struct Node *l=a->right;
             for(int i=0; i<8; ++i)
             {
-                struct Node *n=new_application(l, new_application(new_application(&T298, &X), &Y));
+                struct Node *n=new_application(l, new_application(new_application(&T298, &ATOM_X), &ATOM_Y));
                 reduce(n);
-                if(n->left->opcode==OP_X)
+                if(n->left->opcode==OP_ATOM_X)
                 {
                     code=2*code;
                 }
-                else if(n->left->opcode==OP_Y)
+                else if(n->left->opcode==OP_ATOM_Y)
                 {
                     code=2*code+1;
                 }
@@ -741,11 +891,6 @@ static void apply_T4(struct Node *a)
 static void apply_T21(struct Node *a)
 {
     replace_application(a, a->right, &T2);
-}
-
-static void apply_T6(struct Node *a)
-{
-    replace_node(a, a->left->right);
 }
 
 static void apply_T55(struct Node *a)
@@ -936,8 +1081,322 @@ static void apply_T3157(struct Node *a)
         a->left->right);
 }
 
+static void apply_T15578(struct Node *a)
+{
+    replace_application(
+        a,
+        new_application(a->right, &T2),
+        new_application(a->left->left->right, a->left->right));
+}
+
+static void apply_T20(struct Node *a)
+{
+    a->left=new_application(a->right, a->right);
+}
+
+static void apply_T26787(struct Node *a)
+{
+    replace_application(
+        a,
+        new_application(a->right, a->left->right),
+        new_application(new_application(a->left->left->right, a->left->right), a->right));
+}
+
+static void apply_T46377(struct Node *a)
+{
+    replace_application(
+        a,
+        new_application(a->left->right, a->left->right),
+        new_application(new_application(a->left->left->right, a->left->right), a->right));
+}
+
+static void apply_T103(struct Node *a)
+{
+    replace_application(
+        a,
+        new_application(a->right, a->right),
+        &T2);
+}
+
+static void apply_T155(struct Node *a)
+{
+    replace_application(
+        a,
+        new_application(a->right, a->right),
+        &K);
+}
+
+static void apply_T320(struct Node *a)
+{
+    replace_application(
+        a,
+        a->left->right,
+        new_application(a->left->left->right, a->right));
+}
+
+static void apply_T25104(struct Node *a)
+{
+    replace_application(
+        a,
+        a->left->right,
+        new_application(
+            new_application(a->left->left->left->right, a->left->left->right),
+            a->right));
+}
+
+static void apply_T8695(struct Node *a)
+{
+    replace_application(
+        a,
+        new_application(a->left->left->left->right, a->right),
+        new_application(a->left->right, a->right));
+}
+
+static void apply_T511(struct Node *a)
+{
+    replace_application(
+        a,
+        a->left->right,
+        new_application(a->left->left->right, a->left->right));
+}
+
+static void apply_T3397(struct Node *a)
+{
+    replace_application(
+        a,
+        new_application(a->right, a->left->right),
+        new_application(a->left->left->right, a->left->right));
+}
+
+static void apply_T530(struct Node *a)
+{
+    replace_application(
+        a,
+        new_application(a->right, &K),
+        a->left->right);
+}
+
+static void apply_T336(struct Node *a)
+{
+    a->left=new_application(a->right, new_application(a->left->right, a->right));
+}
+
+static void apply_T8(struct Node *a)
+{
+    replace_node(a, a->left->left->right);
+}
+
+static void apply_T12076(struct Node *a)
+{
+    replace_application(
+        a,
+        a->left->right,
+        new_application(
+            a->left->right,
+            new_application(
+                a->left->right,
+                new_application(a->left->right, a->right))));
+}
+
+static void apply_T4056(struct Node *a)
+{
+    struct Node *t=new_application(a->left->right, a->right);
+    replace_application(
+        a,
+        t,
+        new_application(a->right, t));
+}
+
+static void apply_T44556(struct Node *a)
+{
+    replace_application(
+        a,
+        new_application(
+            new_application(a->left->left->right, a->left->left->right),
+            a->right),
+        new_application(a->left->right, a->right));
+}
+
+static void apply_T25996(struct Node *a)
+{
+    replace_application(
+        a,
+        new_application(
+            new_application(a->left->right, a->left->right),
+            a->right),
+        new_application(a->left->left->right, a->right));
+}
+
+static void apply_T64(struct Node *a)
+{
+    replace_application(
+        a,
+        a->left->right,
+        new_application(a->right, a->right));
+}
+
+static void apply_Y(struct Node *a)
+{
+    replace_application(
+        a,
+        a->right,
+        a);
+}
+
+static void apply_T25323(struct Node *a)
+{
+    replace_application(
+        a,
+        a->left->left->left->right,
+        new_application(
+            new_application(a->left->left->right, a->left->right),
+            a->right));
+}
+
+static void apply_T25242(struct Node *a)
+{
+    replace_application(
+        a,
+        a->left->left->right,
+        new_application(
+            new_application(a->left->left->left->right, a->left->right),
+            a->right));
+}
+
+static void apply_T323(struct Node *a)
+{
+    replace_application(
+        a,
+        a->left->left->right,
+        new_application(a->right, a->left->right));
+}
+
+static void apply_T1982(struct Node *a)
+{
+    replace_application(
+        a,
+        a->left->left->left->right,
+        new_application(a->right, a->left->left->right));
+}
+
+static void apply_T24(struct Node *a)
+{
+    replace_node(a, a->left->left->left->right);
+}
+
+static void apply_T584(struct Node *a)
+{
+    replace_application(
+        a,
+        a->right,
+        new_application(
+            new_application(a->left->right, a->left->right),
+            a->right));
+}
+
+static void apply_T41988(struct Node *a)
+{
+    replace_application(
+        a,
+        new_application(a->left->left->left->right, a->left->left->left->right),
+        new_application(a->left->right, a->right));
+}
+
+static void apply_T297(struct Node *a)
+{
+    replace_application(
+        a,
+        new_application(a->right, a->left->right),
+        a->left->left->right);
+}
+
+static void apply_T10(struct Node *a)
+{
+    replace_application(
+        a,
+        a->right,
+        &I);
+}
+
+static void apply_T95(struct Node *a)
+{
+    replace_application(
+        a,
+        a->right,
+        new_application(a->left->right, a->left->right));
+}
+
+static void apply_T4212(struct Node *a)
+{
+    struct Node *xy=new_application(a->left->right, a->right);
+    replace_application(
+        a,
+        a->right,
+        new_application(xy, xy));
+}
+
+static void apply_T58(struct Node *a)
+{
+    replace_application(
+        a,
+        new_application(a->left->right, a->right),
+        a->right);
+}
+
+static void apply_T24648(struct Node *a)
+{
+    replace_application(
+        a,
+        new_application(a->left->left->left->right, a->left->right),
+        new_application(a->left->left->right, a->right));
+}
+
+static void apply_T365(struct Node *a)
+{
+    replace_application(
+        a,
+        a->right,
+        new_application(a->right, new_application(a->left->right, a->right)));
+}
+
 static struct Node *new_application_load(struct Node *left, struct Node *right)
 {
+    // S(Kx) -> Bx
+    if(left->opcode==OP_S && right->opcode==OP_APPLY && right->left->opcode==OP_K)
+        return new_application_load(&B, right->right);
+
+    // Sx(Ky) -> Cxy
+    if(left->opcode==OP_APPLY && left->left->opcode==OP_S && right->opcode==OP_APPLY && right->left->opcode==OP_K)
+        return new_application_load(new_application_load(&C, left->right), right->right);
+
+    // SxI -> T58x (where T58 = lambda xy . xyy)
+    if(left->opcode==OP_APPLY && left->left->opcode==OP_S && right->opcode==OP_I)
+        return new_application_load(&T58, left->right);
+
+    // C(Kx) -> T55x (where T55 = lambda xyz . xy)
+    if(left->opcode==OP_C && right->opcode==OP_APPLY && right->left->opcode==OP_K)
+        return new_application_load(&T55, right->right);
+
+    // C(T24652x) -> T24648x (where T24652 = BB, T24648 = lambda xyzw . xz(yw))
+    if(left->opcode==OP_C && right->opcode==OP_APPLY && right->left->opcode==OP_T24652)
+        return new_application_load(&T24648, right->right);
+
+    // T61(T61x) -> T365x (where T61 = SI, T365 = lambda xy . y(y(xy)))
+    if(left->opcode==OP_T61 && right->opcode==OP_APPLY && right->left->opcode==OP_T61)
+        return new_application_load(&T365, right->right);
+/*
+    // B(T5x) = T5852x (where T5 = SII, T5852 = lambda xyz . xx(yz))
+    if(left->opcode==OP_B && right->opcode==OP_APPLY && right->left->opcode==OP_T5)
+        return new_application_load(&T5852, right->right);
+*/
+/*
+    // B(Bx) = T25323x (where T25323 = lambda xyzw . x(yzw))
+    if(left->opcode==OP_B && right->opcode==OP_APPLY && right->left->opcode==OP_B)
+        return new_application_load(&T25323, right->right);
+*/
+
+    //C(BSx)yzw = BSxzyw = S(xz)yw = xzw(yw)
+
     struct OptimizeRule
     {
         unsigned int  op_left;
@@ -961,12 +1420,15 @@ static struct Node *new_application_load(struct Node *left, struct Node *right)
         {OP_K,       OP_T61,    &T129},
         {OP_B,       OP_T12,    &T313},
         {OP_S,       OP_T129,   &T2155},
+        {OP_B,       OP_T61,    &T2155},
         {OP_T2155,   OP_K,      &T12},
         {OP_S,       OP_B,      &T3627},
         {OP_T61,     OP_I,      &T5},
+        {OP_T58,     OP_I,      &T5},
         {OP_S,       OP_S,      &T27176},
         {OP_T27176,  OP_I,      &T561},
         {OP_B,       OP_T5,     &T561},
+        {OP_S,       OP_T9,     &T561},
         {OP_T200528, OP_K,      &B},
         {OP_T3627,   OP_I,      &T98},
         {OP_B,       OP_K,      &T55},
@@ -986,10 +1448,55 @@ static struct Node *new_application_load(struct Node *left, struct Node *right)
         {OP_S,       OP_T5,     &T339},
         {OP_C,       OP_T21,    &T329},
         {OP_B,       OP_T55,    &T3157},
+        {OP_S,       OP_T78,    &T3157},
         {OP_S,       OP_T6,     &T55},
         {OP_K,       OP_K,      &T6},
         {OP_K,       OP_T2,     &T4},
-//        {OP_T6,      OP_T2,     &K},
+        {OP_B,       OP_T329,   &T15578},
+        {OP_T339,    OP_I,      &T20},
+        {OP_S,       OP_T2064,  &T26787},
+        {OP_S,       OP_T5852,  &T46377},
+        {OP_T339,    OP_T4,     &T103},
+        {OP_T339,    OP_T6,     &T155},
+        {OP_C,       OP_B,      &T320},
+        {OP_B,       OP_T320,   &T25104},
+        {OP_T55,     OP_S,      &T8695},
+        {OP_S,       OP_T55,    &T511},
+        {OP_S,       OP_T298,   &T3397},
+        {OP_C,       OP_T29,    &T530},
+        {OP_S,       OP_T185,   &T336},
+        {OP_T336,    OP_I,      &T20},
+        {OP_T511,    OP_I,      &T19},
+        {OP_T55,     OP_K,      &T8},
+        {OP_T5,      OP_T98,    &T12076},
+        {OP_T98,     OP_T98,    &T12076},
+        {OP_S,       OP_T61,    &T4056},
+        {OP_T200528, OP_T5,     &T44556},
+        {OP_C,       OP_T44556, &T25996},
+        {OP_T320,    OP_T5,     &T64},
+        {OP_T561,    OP_T64,    &Y},
+        {OP_T5,      OP_T584,   &Y},
+        {OP_T4212,   OP_T64,    &Y},
+        {OP_T24652,  OP_B,      &T25323},
+        {OP_C,       OP_T25323, &T25242},
+        {OP_T23988,  OP_B,      &T323},
+        {OP_T25242,  OP_T12,    &T323},
+        {OP_T3157,   OP_T323,   &T1982},
+        {OP_T55,     OP_T8,     &T24},
+        {OP_T2155,   OP_T5,     &T584},
+        {OP_T55,     OP_T5852,  &T41988},
+        {OP_C,       OP_T298,   &T297},
+        {OP_T12,     OP_I,      &T10},
+        {OP_T185,    OP_I,      &T10},
+        {OP_T313,    OP_T5,     &T95},
+        {OP_K,       OP_T5,     &T9},
+        {OP_T3627,   OP_T9,     &T64},
+        {OP_S,       OP_T64,    &T4212},
+        {OP_K,       OP_T55,    &T78},
+        {OP_K,       OP_T98,    &T198},
+        {OP_K,       OP_T4,     &T7},
+        {OP_K,       OP_T6,     &T11},
+        {OP_T6,      OP_T2,     &K},
     };
 
     for(unsigned int i=0; i<sizeof(rules)/sizeof(rules[0]); ++i)
@@ -1165,32 +1672,37 @@ static struct Node *eliminate_lambda(struct Node *p)
 {
     // It uses some Tromp rules as well as some others
 
+    if(0)
+    {
+    }
+/*
     // Tromp rule 1: lambda x . S K y -> S K
-    if(IS_A(p) && IS_A(p->left) && p->left->left->opcode==OP_S && p->left->right->opcode==OP_K)
+    else if(IS_A(p) && IS_A(p->left) && p->left->left->opcode==OP_S && p->left->right->opcode==OP_K)
     {
         return &T2;
     }
-    // Common rule 2: lambda x . M (where M doesn't contain x) -> K M
+*/
+    // Common rule: lambda x . M (where M doesn't contain x) -> K M
     else if(!contains_variable_zero(p))
     {
         return new_application_load(&K, p);
     }
-    // Common rule 3: lambda x . x -> I
+    // Common rule: lambda x . x -> I
     else if(IS_VAR(p) && contains_variable_zero(p))
     {
         return &I;
     }
-    // Common rule 4: lambda x . M x (where M doesn't contain x) -> M
+    // Common rule: lambda x . M x (where M doesn't contain x) -> M
     else if(IS_A(p) && !contains_variable_zero(p->left) && IS_VAR(p->right) && contains_variable_zero(p->right))
     {
         return p->left;
     }
-    // My rule: lambda x . x M (where M doesn't contain x) -> T M
+    // My rule: lambda x . x M (where M doesn't contain x) -> (T = lambda x y . y x) M
     else if(IS_A(p) && IS_VAR(p->left) && contains_variable_zero(p->left) && !contains_variable_zero(p->right))
     {
         return new_application_load(&T12, p->right);
     }
-
+/*
     // Tromp rule 5: lambda x . x M x -> S S K x M
     // Not sure about its usefullness
     else if(IS_A(p) && IS_A(p->left) && IS_VAR(p->left->left) && contains_variable_zero(p->left->left) && IS_VAR(p->right) && contains_variable_zero(p->right))
@@ -1198,13 +1710,11 @@ static struct Node *eliminate_lambda(struct Node *p)
         return eliminate_lambda(
             new_application_load(
                 new_application_load(
-                    new_application_load(
-                        new_application_load(&S, &S),
-                        &K),
+                    &T185,
                     p->left->left),
                 p->left->right));
     }
-
+*/
 /*
     // BAD RULE!
     // Tromp rule 6: lambda x . M (N L) -> lambda x . S (K M) N L  (M & N do not contain variable 0 or all variables at all???)
@@ -1220,7 +1730,7 @@ static struct Node *eliminate_lambda(struct Node *p)
                 p->right->right));
     }
 */
-
+/*
     // Tromp rule 7: lambda x . M N L -> lambda x . S M (K L) N  (M & L are combinators)
     else if(IS_A(p) && IS_A(p->left) && IS_COMB(p->left->left) && IS_COMB(p->right))
     {
@@ -1242,7 +1752,7 @@ static struct Node *eliminate_lambda(struct Node *p)
                     p->right->left),
                 p->left->right));
     }
-
+*/
     // Rule for B combinator
     else if(IS_A(p) && !contains_variable_zero(p->left) && contains_variable_zero(p->right))
     {
@@ -1516,12 +2026,17 @@ static struct Node *dump(struct Node *p)
 
         static const char *s[]=
         {
-                 "",     "",      "",       "",       "",      "I",      "K",       "S",
-                "B",    "C",   "T12",    "T61",     "T2",   "T298", "T23988",      "T4",
-              "T21",   "T6",   "T55", "T24652", "T24299", "T24290",  "T5281", "T200528",
-             "T129", "T313", "T2155",  "T3627",     "T5", "T27176",   "T561",     "T98",
-            "T2064",  "T19", "T5852",  "T3445",   "T185",  "T8576",    "T29", "T203117",
-             "T339", "T329", "T3157",
+                  "",       "",       "",       "",       "",      "I",      "K",       "S",
+                 "B",      "C",    "T12",    "T61",     "T2",   "T298", "T23988",      "T4",
+               "T21",     "T6",    "T55", "T24652", "T24299", "T24290",  "T5281", "T200528",
+              "T129",   "T313",  "T2155",  "T3627",     "T5", "T27176",   "T561",     "T98",
+             "T2064",    "T19",  "T5852",  "T3445",   "T185",  "T8576",    "T29", "T203117",
+              "T339",   "T329",  "T3157", "T15578",    "T20", "T26787", "T46377",    "T103",
+              "T155",   "T320", "T25104",  "T8695",   "T511",  "T3397",   "T530",    "T336",
+                "T8", "T12076",  "T4056", "T44556", "T25996",    "T64",      "Y",  "T25323",
+            "T25242",   "T323",  "T1982",    "T24",   "T584", "T41988",   "T297",     "T10",
+               "T95",     "T9",  "T4212",    "T78",   "T198",     "T7",    "T11",     "T58",
+            "T24648",   "T365",
         };
         fprintf(stderr, "%s", s[opcode]);
     }
