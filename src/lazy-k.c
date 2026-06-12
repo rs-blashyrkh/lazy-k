@@ -41,11 +41,11 @@ enum OpCode
 {
     // Application nodes. Dynamically allocated in heap
     OP_APPLY    = 0x00,
-    // Special opcodes - IN_C (input continuation) and IN_V (input value). All special nodes
-    // are chained using 'left' pointer into single list. All special nodes of particular
-    // type are resolved and replaced en masse.
-    OP_IN_C     = 0x01,
-    OP_IN_V     = 0x03,
+    // Special opcode - IN (input). Currently there's only one special opcode.
+    // All special nodes are chained using 'left' pointer into single list. All special nodes
+    // of particular type are resolved and replaced en masse.
+    OP_IN       = 0x01,
+    OP_UNUSED   = 0x03,
     // Stopper opcodes - reduction stops if one of them is the left child of application
     OP_ATOM_X   = 0x02,
     OP_ATOM_Y   = 0x06,
@@ -161,8 +161,7 @@ static inline int is_stopper(unsigned int opcode)
 
 typedef void (*apply_fn)(struct Node *);
 
-static void apply_input_cont(struct Node *a);
-static void apply_input_val(struct Node *a);
+static void apply_input(struct Node *a);
 static void apply_atom_Z(struct Node *a);
 static void apply_output_cont(struct Node *a);
 static void apply_output_stop(struct Node *a);
@@ -240,8 +239,8 @@ static void apply_T365(struct Node *a);
 
 static const apply_fn apply_functions[]=
 {
-    apply_input_cont,
-    apply_input_val,
+    apply_input,
+    apply_input, // TODO: remove OP_UNUSED along with this function ptr
     apply_atom_Z,
     apply_output_cont,
     apply_output_stop,
@@ -570,14 +569,9 @@ static inline void replace_node(struct Node *a, const struct Node *source)
     }
 }
 
-static inline struct Node *new_input_cont(void)
+static inline struct Node *new_input(void)
 {
-    return new_node(NULL, NULL, OP_IN_C);
-}
-
-static inline struct Node *new_input_value(void)
-{
-    return new_node(NULL, NULL, OP_IN_V);
+    return new_node(NULL, NULL, OP_IN);
 }
 
 // Find all nodes, remove them from the hash table, chain together into single-linked list
@@ -604,9 +598,9 @@ static struct Node *find_special_nodes(unsigned int opcode)
     return res;
 }
 
-static void apply_input_cont(struct Node *a)
+static void apply_input(struct Node *a)
 {
-    struct Node *node=find_special_nodes(OP_IN_C);
+    struct Node *node=find_special_nodes(OP_IN);
     if(!node)
         return;
 
@@ -614,8 +608,18 @@ static void apply_input_cont(struct Node *a)
     {
     case IO_LAZYK:
         {
-            struct Node *left=new_application(&T298, new_input_value());
-            struct Node *right=new_input_cont();
+            int code=fgetc(stdin);
+            if(code<0 || code>255)
+                code=256;
+
+            struct Node *numeral=&T2; // T2 = KI = 0
+            for(int i=0; i<code; ++i)
+            {
+                numeral=new_application(&T3627, numeral); // T3627 = SB = ++
+            }
+
+            struct Node *left=new_application(&T298, numeral); // T298 = T
+            struct Node *right=new_input();
 
             while(node)
             {
@@ -651,7 +655,7 @@ static void apply_input_cont(struct Node *a)
             else
             {
                 left=new_application(&T298, code=='0' ? &K : &T2);
-                right=new_input_cont();
+                right=new_input();
             }
 
             while(node)
@@ -688,7 +692,7 @@ static void apply_input_cont(struct Node *a)
                 }
 
                 left=new_application(&T298, p);
-                right=new_input_cont();
+                right=new_input();
             }
 
             while(node)
@@ -703,34 +707,6 @@ static void apply_input_cont(struct Node *a)
             }
         }
         break;
-    }
-}
-
-static void apply_input_val(struct Node *a)
-{
-    struct Node *node=find_special_nodes(OP_IN_V);
-    if(!node)
-        return;
-
-    int code=fgetc(stdin);
-    if(code<0 || code>255)
-        code=256;
-
-    struct Node *donor=&T2;
-    for(int i=0; i<code; ++i)
-    {
-        donor=new_application(new_application(&S, &B), donor);
-    }
-
-    while(node)
-    {
-        struct Node *next=node->left;
-
-        node->left=donor->left;
-        node->right=donor->right;
-        node->opcode=donor->opcode;
-
-        node=next;
     }
 }
 
@@ -2008,7 +1984,7 @@ int main(int argc, char *argv[])
     if(io_mode==IO_AUTO)
         io_mode=IO_LAZYK;
 
-    struct Node *program=new_input_cont();
+    struct Node *program=new_input();
     for(int i=1; i<argc; ++i)
     {
         FILE *f=fopen(argv[i], "rt");
