@@ -1,4 +1,4 @@
-1. Cleanup, reduce boilerplate code amount (use macro)
++1. Cleanup, reduce boilerplate code amount (use macro)
 2. Add The Church operation mode (just program parsing, IO is the same)
 3. Add Crazy J operation mode (parsing, IO codes shift)
 4. Add support for Crazy J Brainfuck mimic syntax
