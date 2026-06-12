@@ -1670,20 +1670,8 @@ static int is_same(const struct Node *p, const struct Node *q)
 
 static struct Node *eliminate_lambda(struct Node *p)
 {
-    // It uses some Tromp rules as well as some others
-
-    if(0)
-    {
-    }
-/*
-    // Tromp rule 1: lambda x . S K y -> S K
-    else if(IS_A(p) && IS_A(p->left) && p->left->left->opcode==OP_S && p->left->right->opcode==OP_K)
-    {
-        return &T2;
-    }
-*/
     // Common rule: lambda x . M (where M doesn't contain x) -> K M
-    else if(!contains_variable_zero(p))
+    if(!contains_variable_zero(p))
     {
         return new_application_load(&K, p);
     }
@@ -1702,69 +1690,16 @@ static struct Node *eliminate_lambda(struct Node *p)
     {
         return new_application_load(&T12, p->right);
     }
-/*
-    // Tromp rule 5: lambda x . x M x -> S S K x M
-    // Not sure about its usefullness
-    else if(IS_A(p) && IS_A(p->left) && IS_VAR(p->left->left) && contains_variable_zero(p->left->left) && IS_VAR(p->right) && contains_variable_zero(p->right))
-    {
-        return eliminate_lambda(
-            new_application_load(
-                new_application_load(
-                    &T185,
-                    p->left->left),
-                p->left->right));
-    }
-*/
-/*
-    // BAD RULE!
-    // Tromp rule 6: lambda x . M (N L) -> lambda x . S (K M) N L  (M & N do not contain variable 0 or all variables at all???)
-    else if(IS_A(p) && IS_A(p->right) && IS_COMB(p->left) && IS_COMB(p->right->left))
-    {
-        return eliminate_lambda(
-            new_application_load(
-                new_application_load(
-                    new_application_load(
-                        &S,
-                        eliminate_lambda(p->left)),
-                    p->right->left),
-                p->right->right));
-    }
-*/
-/*
-    // Tromp rule 7: lambda x . M N L -> lambda x . S M (K L) N  (M & L are combinators)
-    else if(IS_A(p) && IS_A(p->left) && IS_COMB(p->left->left) && IS_COMB(p->right))
-    {
-        return eliminate_lambda(
-            new_application_load(
-                new_application_load(
-                    new_application_load(&S, p->left->left),
-                    eliminate_lambda(p->right)),
-                p->left->right));
-    }
-
-    // Tromp rule 8: lambda x . (M L) (N L) -> lambda x . (S M N) L -> B (S M N) (lambda x . L)
-    else if(IS_A(p) && IS_A(p->left) && IS_A(p->right) && IS_COMB(p->left->left) && IS_COMB(p->right->left) && is_same(p->left->right, p->right->right))
-    {
-        return eliminate_lambda(
-            new_application_load(
-                new_application_load(
-                    new_application_load(&S, p->left->left),
-                    p->right->left),
-                p->left->right));
-    }
-*/
     // Rule for B combinator
     else if(IS_A(p) && !contains_variable_zero(p->left) && contains_variable_zero(p->right))
     {
         return new_application_load(new_application_load(&B, p->left), eliminate_lambda(p->right));
     }
-
     // Rule for C combinator
     else if(IS_A(p) && contains_variable_zero(p->left) && !contains_variable_zero(p->right))
     {
         return new_application_load(new_application_load(&C, eliminate_lambda(p->left)), p->right);
     }
-
     // Fallback rule: lambda x . M N -> S (lambda x . M) (lambda x . N)
     else
     {
