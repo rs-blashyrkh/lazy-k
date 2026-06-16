@@ -83,7 +83,7 @@ DECLARE_OPCODE(C,          0x11<<2, apply_C) // C = lambda xyz . xzy
 // encoding of lambda terms. Common name (if any) is given as a comment.
 DECLARE_OPCODE(T12,        0x13<<1, apply_T12)    // T = lambda xy . yx
 DECLARE_OPCODE(T61,        0x15<<1, apply_T61)    // O = SI = lambda xy . y(xy)
-DECLARE_OPCODE(T2,         0x17<<1, apply_T2)     // KI = lambda xy . y
+DECLARE_OPCODE(T2,         0x17<<1, NO_APPLY)     // KI = lambda xy . y
 DECLARE_OPCODE(T298,       0x19<<2, apply_T298)   // V = lambda xyz . zxy
 DECLARE_OPCODE(T23988,     0x1B<<3, apply_T23988) // BC = lambda xyzw . xywz
 DECLARE_OPCODE(T4,         0x1D<<2, NO_APPLY)     // K(KI) = lambda xyz . z
@@ -179,10 +179,10 @@ static const apply_fn apply_functions[]=
     apply_C,
     apply_T12,
     apply_T61,
-    apply_T2,
+    apply_I,  // T2 = K I
     apply_T298,
     apply_T23988,
-    apply_T2, // T4 = K T2
+    apply_I,  // T4 = K T2 = K (K I)
     apply_T21,
     apply_K,  // T6 = K K
     apply_T55,
@@ -244,7 +244,7 @@ static const apply_fn apply_functions[]=
     apply_T4212,
     apply_T55, // T78 = K T55
     apply_T98, // T198 = K T98
-    apply_T2,  // T7 = K T4 = K (K T2)
+    apply_I,   // T7 = K T4 = K (K T2) = K (K (K I))
     apply_K,   // T11 = K T6 = K(KK)
     apply_T58,
     apply_T24648,
@@ -369,7 +369,29 @@ static inline struct Node *new_node(struct Node *left, struct Node *right, unsig
     return p;
 }
 
-static inline struct Node *new_combinator(char ch)
+static inline struct Node *new_application(struct Node *left, struct Node *right)
+{
+    return new_node(left, right, OP_APPLY);
+}
+
+static inline struct Node *new_numeral(unsigned int n)
+{
+    if(n==0)
+        return &T2;
+    else if(n==1)
+        return &I;
+    else
+    {
+        struct Node *numeral=&T98; // T98 = Church "2"
+        for(int i=2; i<n; ++i)
+        {
+            numeral=new_application(&T3627, numeral); // T3627 = SB = ++
+        }
+        return numeral;
+    }
+}
+
+static inline struct Node *new_lazyk_combinator(char ch)
 {
     ch=tolower(ch);
     if(ch=='i')
@@ -382,9 +404,19 @@ static inline struct Node *new_combinator(char ch)
         return NULL;
 }
 
-static inline struct Node *new_application(struct Node *left, struct Node *right)
+static inline struct Node *new_thechurch_combinator(char ch)
 {
-    return new_node(left, right, OP_APPLY);
+    if(ch=='+')
+        // C(BS(BB))
+        return new_application(&C, new_application(&T200528, &T24652));
+    else if(ch=='*')
+        return &T320;
+    else if(ch=='^')
+        return &T12;
+    else if(ch>='0' && ch<='9')
+        return new_numeral(ch-'0');
+    else
+        return NULL;
 }
 
 static inline struct Node *new_variable(unsigned int index)
@@ -455,13 +487,8 @@ static void apply_input(struct Node *a)
             if(code<0 || code>255)
                 code=256;
 
-            struct Node *numeral=&T2; // T2 = KI = 0
-            for(int i=0; i<code; ++i)
-            {
-                numeral=new_application(&T3627, numeral); // T3627 = SB = ++
-            }
 
-            struct Node *left=new_application(&T298, numeral); // T298 = T
+            struct Node *left=new_application(&T298, new_numeral(code)); // T298 = T
             struct Node *right=new_input();
 
             while(node)
@@ -558,33 +585,38 @@ static void apply_ATOM_Z(struct Node *a)
     replace_application(a, a->right, a->left);
 }
 
+static void lazyk_fetch_output_char(struct Node *n)
+{
+    n=new_application(new_application(n, &ATOM_Z), &ATOM_X);
+    reduce(n);
+
+    unsigned int code=0;
+    while(n->opcode==OP_APPLY && n->right->opcode==OP_ATOM_Z && code<256+126)
+    {
+        ++code;
+        n=n->left;
+    }
+    if(n->opcode!=OP_ATOM_X)
+        code=256+126;
+
+    if(code<256)
+    {
+        fputc(code, stdout);
+        fflush(stdout);
+    }
+    else
+    {
+        exit(code-256);
+    }
+}
+
 static void apply_output_cont(struct Node *a)
 {
     switch(io_mode)
     {
     case IO_LAZYK:
         {
-            struct Node *n=new_application(new_application(a->right, &ATOM_Z), &ATOM_X);
-            reduce(n);
-
-            unsigned int code=0;
-            while(n->opcode==OP_APPLY && n->right->opcode==OP_ATOM_Z && code<256+126)
-            {
-                ++code;
-                n=n->left;
-            }
-            if(n->opcode!=OP_ATOM_X)
-                code=256+126;
-
-            if(code<256)
-            {
-                fputc(code, stdout);
-                fflush(stdout);
-            }
-            else
-            {
-                exit(code-256);
-            }
+            lazyk_fetch_output_char(a->right);
 
             // Should return CI<OUT> to continue
             replace_application(a, &T12, &OUT_C);
@@ -685,11 +717,6 @@ static void apply_T12(struct Node *a)
 static void apply_T61(struct Node *a)
 {
     replace_application(a, a->right, new_application(a->left->right, a->right));
-}
-
-static void apply_T2(struct Node *a)
-{
-    replace_node(a, a->right);
 }
 
 static void apply_T298(struct Node *a)
@@ -1306,6 +1333,14 @@ static struct Node *new_application_load(struct Node *left, struct Node *right)
     return new_application(left, right);
 }
 
+struct ParseErrorInfo
+{
+    unsigned int line;
+    unsigned int col;
+    int ch;
+    const char *message;
+};
+
 // TODO: return parsing error info (line, col, message)
 static struct Node *parse_lazyk_program(FILE *f)
 {
@@ -1359,7 +1394,7 @@ static struct Node *parse_lazyk_program(FILE *f)
                 if(!op_stack)
                     abort();
             }
-            op_stack[op_stack_size++]=new_combinator(ch);
+            op_stack[op_stack_size++]=new_lazyk_combinator(ch);
             ++n_stack[n_stack_size-1];
 
             while(n_stack_size>0 && n_stack[n_stack_size-1]==2)
@@ -1385,6 +1420,229 @@ static struct Node *parse_lazyk_program(FILE *f)
     free(n_stack);
 
     return res;
+}
+
+static struct Node *parse_thechurch_program(FILE *f, struct ParseErrorInfo *error)
+{
+    unsigned int line=1;
+    unsigned int col=0;
+    int ignore_rest_of_line=0;
+
+    unsigned int op_stack_size=0;
+    unsigned int op_stack_cap=0;
+    struct Node **op_stack=NULL;
+
+    unsigned int prio_stack_size=0;
+    unsigned int prio_stack_cap=0;
+    unsigned int *prio_stack=NULL;
+
+    unsigned int n_stack_size=0;
+    unsigned int n_stack_cap=10;
+    unsigned int *n_stack=(unsigned int *)malloc(n_stack_cap*sizeof(unsigned int));
+    n_stack[n_stack_size++]=0;
+
+    static const int priorities[96]=
+    {
+        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+        -1, -1, -1, -1, -1, -1, -1, -1,  0,  0,  2,  1, -1, -1, -1, -1,
+         4,  5,  6,  7,  8,  9, 10, 11, 12, 13, -1, -1, -1, -1, -1, -1,
+        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,  3, -1,
+    };
+
+    int ch;
+    while((ch=fgetc(f))!=EOF)
+    {
+        if(ch=='\n')
+        {
+            ++line;
+            col=0;
+            ignore_rest_of_line=0;
+            continue;
+        }
+
+        ++col;
+        if(ignore_rest_of_line)
+            continue;
+
+        if(ch=='#')
+        {
+            ignore_rest_of_line=1;
+            continue;
+        }
+        if(isspace(ch))
+            continue;
+
+        if(ch<0 || ch>=96 || priorities[ch]==-1)
+        {
+            error->message="Unexpected character";
+            goto err;
+        }
+
+        if(ch=='(')
+        {
+            if(n_stack_size>=n_stack_cap)
+            {
+                n_stack_cap+=10;
+                n_stack=(unsigned int *)realloc(n_stack, n_stack_cap*sizeof(unsigned int));
+                if(!n_stack)
+                    abort();
+            }
+            n_stack[n_stack_size++]=0;
+            continue;
+        }
+
+        int prio;
+        if(ch==')')
+        {
+            if(n_stack_size==1)
+            {
+                error->message="Unbalanced";
+                goto err;
+            }
+
+            if(n_stack[n_stack_size-1]%2==0)
+            {
+                error->message="Unfinished subexpression";
+                goto err;
+            }
+
+            // fold
+            while(n_stack[n_stack_size-1]>1)
+            {
+                assert(n_stack[n_stack_size-1]>=3);
+                assert(op_stack_size>=3);
+                assert(prio_stack_size>=1);
+
+                // C+A*B   ->  C+(X)
+                //                v
+                //               [ ]
+                //              /   \
+                //            [ ]   [B]
+                //           /   \
+                //         [*]   [A]
+
+                struct Node *a=op_stack[op_stack_size-3];
+                struct Node *o=op_stack[op_stack_size-2];
+                struct Node *b=op_stack[op_stack_size-1];
+
+                op_stack[op_stack_size-3]=new_application_load(new_application_load(o, a), b);
+                op_stack_size-=2;
+
+                prio_stack_size-=1;
+
+                n_stack[n_stack_size-1]-=2;
+            }
+
+            n_stack_size-=1;
+            ++n_stack[n_stack_size-1];
+
+            prio=0;
+        }
+        else
+        {
+            if(op_stack_size>=op_stack_cap)
+            {
+                op_stack_cap+=20;
+                op_stack=(struct Node **)realloc(op_stack, op_stack_cap*sizeof(struct Node *));
+                if(!op_stack)
+                    abort();
+            }
+            op_stack[op_stack_size++]=new_thechurch_combinator(ch);
+            ++n_stack[n_stack_size-1];
+
+            prio=priorities[ch];
+        }
+
+        if(n_stack[n_stack_size-1]%2==0)
+        {
+            if(prio_stack_size>=prio_stack_cap)
+            {
+                prio_stack_cap+=10;
+                prio_stack=(unsigned int *)realloc(prio_stack, prio_stack_cap*sizeof(unsigned int));
+                if(!prio_stack)
+                    abort();
+            }
+            prio_stack[prio_stack_size++]=prio;
+        }
+        else if(n_stack[n_stack_size-1]>=5)
+        {
+            assert(op_stack_size>=5);
+            assert(prio_stack_size>=2);
+
+            while(n_stack[n_stack_size-1]>=5 && prio_stack[prio_stack_size-2]>=prio_stack[prio_stack_size-1])
+            {
+                // A*B+C  -> (X)+C
+                //            v
+                //           [ ]
+                //          /   \
+                //        [ ]   [B]
+                //       /   \
+                //     [*]   [A]
+                struct Node *a=op_stack[op_stack_size-5];
+                struct Node *o=op_stack[op_stack_size-4];
+                struct Node *b=op_stack[op_stack_size-3];
+
+                op_stack[op_stack_size-5]=new_application_load(new_application_load(o, a), b);
+                op_stack[op_stack_size-4]=op_stack[op_stack_size-2];
+                op_stack[op_stack_size-3]=op_stack[op_stack_size-1];
+                op_stack_size-=2;
+
+                prio_stack[prio_stack_size-2]=prio_stack[prio_stack_size-1];
+                prio_stack_size-=1;
+
+                n_stack[n_stack_size-1]-=2;
+            }
+        }
+    }
+
+    struct Node *res;
+    if(n_stack_size==1 && n_stack[0]==0)
+    {
+        res=new_thechurch_combinator('1');
+    }
+    else if(n_stack_size>1)
+    {
+        ++col;
+        error->message="Unexpected";
+        goto err;
+    }
+    else
+    {
+        if(op_stack_size%2==0)
+        {
+            error->message="Unfinished subexpression";
+            goto err;
+        }
+
+        while(op_stack_size>1)
+        {
+            struct Node *a=op_stack[op_stack_size-3];
+            struct Node *o=op_stack[op_stack_size-2];
+            struct Node *b=op_stack[op_stack_size-1];
+
+            op_stack[op_stack_size-3]=new_application_load(new_application_load(o, a), b);
+            op_stack_size-=2;
+        }
+
+        res=op_stack[op_stack_size-1];
+    }
+
+    free(op_stack);
+    free(prio_stack);
+    free(n_stack);
+
+    return res;
+
+err:
+    error->line=line;
+    error->col=col;
+    error->ch=ch;
+    free(op_stack);
+    free(prio_stack);
+    free(n_stack);
+    return NULL;
 }
 
 static inline int IS_A(const struct Node *p)
@@ -1689,7 +1947,7 @@ static void reduce(struct Node *p)
 #if 0
             if(!p->left->left && !p->right->left)
             {
-                fprintf(stderr, "%02x %02x\n", p->left->opcode, p->right->opcode);
+                fprintf(stderr, "%04x %04x\n", p->left->opcode, p->right->opcode);
             }
 #endif
             // Trivial opcode
@@ -1727,6 +1985,12 @@ static inline int is_lazyk_source(const char *filename)
     return p && strcmp(p, ".lazy")==0;
 }
 
+static inline int is_thechurch_source(const char *filename)
+{
+    char *p=strrchr(filename, '.');
+    return p && strcmp(p, ".holy")==0;
+}
+
 static inline int is_blc_source(const char *filename)
 {
     char *p=strrchr(filename, '.');
@@ -1759,7 +2023,7 @@ static struct Node *dump(struct Node *p)
 
         static const char *s[]=
         {
-                  "",       "",       "",       "",       "",      "I",      "K",       "S",
+                            "",       "",       "",       "",      "I",      "K",       "S",
                  "B",      "C",    "T12",    "T61",     "T2",   "T298", "T23988",      "T4",
                "T21",     "T6",    "T55", "T24652", "T24299", "T24290",  "T5281", "T200528",
               "T129",   "T313",  "T2155",  "T3627",     "T5", "T27176",   "T561",     "T98",
@@ -1783,7 +2047,7 @@ int main(int argc, char *argv[])
     {
         enum IOMode file_io_mode=IO_AUTO;
 
-        if(is_lazyk_source(argv[i]))
+        if(is_lazyk_source(argv[i]) || is_thechurch_source(argv[i]))
             file_io_mode=IO_LAZYK;
         else if(is_blc_source(argv[i]))
             file_io_mode=IO_BLC;
@@ -1816,10 +2080,17 @@ int main(int argc, char *argv[])
             return 1;
         }
 
+        struct ParseErrorInfo error;
+        error.message=NULL;
+
         struct Node *node;
         if(is_lazyk_source(argv[i]))
         {
             node=dump(parse_lazyk_program(f));
+        }
+        else if(is_thechurch_source(argv[i]))
+        {
+            node=parse_thechurch_program(f, &error);
         }
         else if(is_blc_source(argv[i]))
         {
@@ -1832,10 +2103,15 @@ int main(int argc, char *argv[])
 
         fclose(f);
 
-
         if(!node)
         {
-            fprintf(stderr, "Failed to parse source file\n");
+            if(!error.message)
+                fprintf(stderr, "%s: Unknown parse error\n", argv[i]);
+            else if(error.ch==EOF)
+                fprintf(stderr, "%s:%u:%u: %s EOF\n", argv[i], error.line, error.col, error.message);
+            else
+                fprintf(stderr, "%s:%u:%u: %s '%c'\n", argv[i], error.line, error.col, error.message, error.ch);
+
             return 1;
         }
 
@@ -1846,9 +2122,12 @@ int main(int argc, char *argv[])
     if(io_mode==IO_BLC || io_mode==IO_BLC8)
     {
         program=new_application(program, &OUT_S);
+        reduce(program);
+        return program->opcode==OP_OUT_S ? 0 : 126;
     }
-
-    reduce(program);
-
-    return program->opcode==OP_OUT_S ? 0 : 126;
+    else
+    {
+        lazyk_fetch_output_char(program);
+        return 126;
+    }
 }
