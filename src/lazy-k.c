@@ -1341,9 +1341,15 @@ struct ParseErrorInfo
     const char *message;
 };
 
-// TODO: return parsing error info (line, col, message)
-static struct Node *parse_lazyk_program(FILE *f)
+static struct Node *parse_lazyk_program(FILE *f, struct ParseErrorInfo *error)
 {
+    enum Syntax
+    {
+        Unknown,
+        Unlambda,
+        CC
+    } syntax=Unknown;
+
     unsigned int line=1;
     unsigned int col=0;
     int ignore_rest_of_line=0;
@@ -1373,9 +1379,25 @@ static struct Node *parse_lazyk_program(FILE *f)
             continue;
 
         if(ch=='#')
-            ignore_rest_of_line=1;
-        else if(ch=='`')
         {
+            ignore_rest_of_line=1;
+            continue;
+        }
+        if(isspace(ch))
+            continue;
+
+        if(
+            ((ch=='`' || ch=='i' || ch=='k' || ch=='s') && (syntax!=Unlambda && syntax!=Unknown)) ||
+            ((ch=='(' || ch==')' || ch=='I' || ch=='K' || ch=='S') && (syntax!=CC && syntax!=Unknown)))
+        {
+            error->message="Unexpected character";
+            goto err;
+        }
+
+        if(ch=='`' || ch=='(')
+        {
+            syntax=(ch=='`')?Unlambda:CC;
+
             if(n_stack_size>=n_stack_cap)
             {
                 n_stack_cap+=10;
@@ -1385,8 +1407,10 @@ static struct Node *parse_lazyk_program(FILE *f)
             }
             n_stack[n_stack_size++]=0;
         }
-        else if(ch=='i' || ch=='k' || ch=='s')
+        else if(ch=='i' || ch=='k' || ch=='s' || ch=='I' || ch=='K' || ch=='S')
         {
+            syntax=islower(ch)?Unlambda:CC;
+
             if(op_stack_size>=op_stack_cap)
             {
                 op_stack_cap+=20;
@@ -1396,30 +1420,80 @@ static struct Node *parse_lazyk_program(FILE *f)
             }
             op_stack[op_stack_size++]=new_lazyk_combinator(ch);
             ++n_stack[n_stack_size-1];
+        }
+        else if(ch==')')
+        {
+            syntax=CC;
 
-            while(n_stack_size>0 && n_stack[n_stack_size-1]==2)
+            if(n_stack_size==1)
             {
-                struct Node *left=op_stack[op_stack_size-2];
-                struct Node *right=op_stack[op_stack_size-1];
+                error->message="Unbalanced";
+                goto err;
+            }
 
+            if(n_stack[n_stack_size-1]==0)
+            {
+                error->message="Unexpected character";
+                goto err;
+            }
+
+            --n_stack_size;
+            ++n_stack[n_stack_size-1];
+        }
+
+        while(n_stack_size>=1 && n_stack[n_stack_size-1]==2)
+        {
+            struct Node *left=op_stack[op_stack_size-2];
+            struct Node *right=op_stack[op_stack_size-1];
+
+            --op_stack_size;
+            op_stack[op_stack_size-1]=new_application_load(left, right);
+
+            if(syntax==CC)
+            {
+                --n_stack[n_stack_size-1];
+            }
+            else
+            {
+                if(n_stack_size==1)
+                {
+                    error->message="EOF expected instead of";
+                    goto err;
+                }
                 --n_stack_size;
                 ++n_stack[n_stack_size-1];
-                --op_stack_size;
-
-                op_stack[op_stack_size-1]=new_application_load(left, right);
             }
         }
     }
-    // TODO: checks
 
-    struct Node *res=NULL;
-    if(op_stack_size==1)
+    struct Node *res;
+    if(n_stack_size==1 && n_stack[0]==0)
+    {
+        res=new_lazyk_combinator('i');
+    }
+    else if(n_stack_size>1)
+    {
+        ++col;
+        error->message="Unexpected";
+        goto err;
+    }
+    else
+    {
         res=op_stack[0];
+    }
 
     free(op_stack);
     free(n_stack);
 
     return res;
+
+err:
+    error->line=line;
+    error->col=col;
+    error->ch=ch;
+    free(op_stack);
+    free(n_stack);
+    return NULL;
 }
 
 static struct Node *parse_thechurch_program(FILE *f, struct ParseErrorInfo *error)
@@ -2086,7 +2160,7 @@ int main(int argc, char *argv[])
         struct Node *node;
         if(is_lazyk_source(argv[i]))
         {
-            node=dump(parse_lazyk_program(f));
+            node=parse_lazyk_program(f, &error);
         }
         else if(is_thechurch_source(argv[i]))
         {
@@ -2127,6 +2201,7 @@ int main(int argc, char *argv[])
     }
     else
     {
+        // normally it's expected to call exit() explicitly
         lazyk_fetch_output_char(program);
         return 126;
     }
