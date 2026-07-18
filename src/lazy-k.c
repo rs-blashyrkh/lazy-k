@@ -2032,11 +2032,19 @@ static int IS_COMB(const struct Node *p)
     }
 }
 
-static inline int get_non_ws_char(FILE *f)
+static inline int get_non_ws_char(FILE *f, unsigned int *line, unsigned int *col)
 {
     for(;;)
     {
         int ch=fgetc(f);
+        if(ch=='\n')
+        {
+            ++(*line);
+            *col=0;
+            continue;
+        }
+
+        ++(*col);
         if(ch==EOF || !isspace(ch))
             return ch;
     }
@@ -2128,15 +2136,15 @@ static struct Node *eliminate_lambda(struct Node *p)
     }
 }
 
-static struct Node *parse_blc_program(FILE *f, unsigned int lambda_depth)
+static struct Node *parse_blc_subprogram(FILE *f, unsigned int lambda_depth, unsigned int *line, unsigned int *col, struct ParseErrorInfo *error)
 {
-    int ch=get_non_ws_char(f);
+    int ch=get_non_ws_char(f, line, col);
     if(ch=='0')
     {
-        ch=get_non_ws_char(f);
+        ch=get_non_ws_char(f, line, col);
         if(ch=='0')
         {
-            struct Node *p=parse_blc_program(f, lambda_depth+1);
+            struct Node *p=parse_blc_subprogram(f, lambda_depth+1, line, col, error);
             if(!p)
                 return NULL;
 
@@ -2147,37 +2155,63 @@ static struct Node *parse_blc_program(FILE *f, unsigned int lambda_depth)
         }
         else if(ch=='1')
         {
-            struct Node *left=parse_blc_program(f, lambda_depth);
+            struct Node *left=parse_blc_subprogram(f, lambda_depth, line, col, error);
             if(!left)
                 return NULL;
-            struct Node *right=parse_blc_program(f, lambda_depth);
+
+            struct Node *right=parse_blc_subprogram(f, lambda_depth, line, col, error);
             if(!right)
                 return NULL;
+
             return new_application_load(left, right);
         }
         else
         {
-            return NULL;
+            error->message="Unexpected character";
         }
     }
     else if(ch=='1')
     {
         unsigned int index=0;
-        while((ch=get_non_ws_char(f))=='1')
+        while((ch=get_non_ws_char(f, line, col))=='1')
         {
             ++index;
         }
-        if(ch!='0' || index>=lambda_depth)
+        if(ch=='0' && index<lambda_depth)
         {
-            return NULL;
+            return new_variable(index);
         }
 
-        return new_variable(index);
+        if(index>=lambda_depth)
+        {
+            error->message="Unexpected free variable";
+        }
+        else if(ch==EOF)
+        {
+            error->message="Unexpected";
+        }
+        else
+        {
+            error->message="Unexpected character";
+        }
     }
     else
     {
-        return NULL;
+        error->message="Unexpected character";
     }
+
+    error->line=*line;
+    error->col=*col;
+    error->ch=ch;
+    return NULL;
+}
+
+static struct Node *parse_blc_program(FILE *f, struct ParseErrorInfo *error)
+{
+    unsigned int line=1;
+    unsigned int col=0;
+
+    return parse_blc_subprogram(f, 0, &line, &col, error);
 }
 
 struct BLC8BitBuffer
@@ -2471,7 +2505,7 @@ int main(int argc, char *argv[])
         }
         else if(is_blc_source(argv[i]))
         {
-            node=dump(parse_blc_program(f, 0));
+            node=parse_blc_program(f, &error);
         }
         else if(is_blc8_source(argv[i]))
         {
