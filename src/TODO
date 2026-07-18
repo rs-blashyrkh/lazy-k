@@ -1,7 +1,7 @@
 +1. Cleanup, reduce boilerplate code amount (use macro)
 +2. Add The Church operation mode (just program parsing, IO is the same)
-3. Add Crazy J operation mode (parsing, IO codes shift)
-4. Add support for Crazy J Brainfuck mimic syntax
++3. Add Crazy J operation mode (parsing, IO codes shift)
++4. Add support for Crazy J Brainfuck mimic syntax
 5. Turn off default dump mode (add option)
 +6. Lazy K combinator calculus style
 7.

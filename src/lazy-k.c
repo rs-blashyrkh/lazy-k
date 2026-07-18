@@ -33,6 +33,7 @@ enum IOMode
 {
     IO_AUTO,
     IO_LAZYK,
+    IO_CRAZYJ,
     IO_BLC,
     IO_BLC8
 };
@@ -77,82 +78,92 @@ DECLARE_OPCODE(K,          0x0B<<1, apply_K)
 DECLARE_OPCODE(S,          0x0D<<2, apply_S)
 DECLARE_OPCODE(B,          0x0F<<2, apply_B) // B = lambda xyz . x(yz)
 DECLARE_OPCODE(C,          0x11<<2, apply_C) // C = lambda xyz . xzy
+DECLARE_OPCODE(J,          0x13<<3, apply_J) // J = lambda xyzw . xy(xwz)
 
 // Extended combinators. Named after their 1-based serial number in lexicographically-sorted
 // list of normal forms. E.g. I=T1, K=T3, S=T2113. 'T' stands for Tromp who suggested binary
 // encoding of lambda terms. Common name (if any) is given as a comment.
-DECLARE_OPCODE(T12,        0x13<<1, apply_T12)    // T = lambda xy . yx
-DECLARE_OPCODE(T61,        0x15<<1, apply_T61)    // O = SI = lambda xy . y(xy)
-DECLARE_OPCODE(T2,         0x17<<1, NO_APPLY)     // KI = lambda xy . y
-DECLARE_OPCODE(T298,       0x19<<2, apply_T298)   // V = lambda xyz . zxy
-DECLARE_OPCODE(T23988,     0x1B<<3, apply_T23988) // BC = lambda xyzw . xywz
-DECLARE_OPCODE(T4,         0x1D<<2, NO_APPLY)     // K(KI) = lambda xyz . z
-DECLARE_OPCODE(T21,        0x1F,    apply_T21)    // O(K(KI)) = T(KI) = lambda x . x(KI)
-DECLARE_OPCODE(T6,         0x21<<2, NO_APPLY)     // KK = lambda xyz . y
-DECLARE_OPCODE(T55,        0x23<<2, apply_T55)    // S(KK) = BK = lambda xyz . xy
-DECLARE_OPCODE(T24652,     0x25<<3, apply_T24652) // BB = lambda xyzw . xy(zw)
-DECLARE_OPCODE(T24299,     0x27<<3, apply_T24299) // BBV = lambda xyzw . wx(yz)
-DECLARE_OPCODE(T24290,     0x29<<3, apply_T24290) // C(BBV) = lambda xyzw . wy(xz)
-DECLARE_OPCODE(T5281,      0x2B<<3, NO_APPLY)     // KS = lambda xyzw . yw(zw)
-DECLARE_OPCODE(T200528,    0x2D<<3, apply_T200528)// S(KS) = BS = lambda xyzw . xyw(zw)
-DECLARE_OPCODE(T129,       0x2F<<2, NO_APPLY)     // KO = lambda xyz . z(yz)
-DECLARE_OPCODE(T313,       0x31<<2, apply_T313)   // Q3 = BT = lambda xyz . z(xy)
-DECLARE_OPCODE(T2155,      0x33<<2, apply_T2155)  // S(KO) = BO = lambda xyz . z(xyz)
-DECLARE_OPCODE(T3627,      0x35<<2, apply_T3627)  // ++ = SB = lambda xyz . y(xyz)
-DECLARE_OPCODE(T5,         0x37,    apply_T5)     // M = SII = lambda x . xx
-DECLARE_OPCODE(T27176,     0x39<<2, apply_T27176) // SS = lambda xyz . yz(xyz)
-DECLARE_OPCODE(T561,       0x3B<<1, apply_T561)   // M2 = SSI = B(SII) = lambda xy . xy(xy)
-DECLARE_OPCODE(T98,        0x3D<<1, apply_T98)    // 2 = SBI = lambda xy . x(xy)
-DECLARE_OPCODE(T2064,      0x3F<<2, apply_T2064)  // S(KS)T = lambda xyz . zx(yz)
-DECLARE_OPCODE(T19,        0x41<<1, apply_T19)    // S(KK)(SII) = lambda xy . xx
-DECLARE_OPCODE(T5852,      0x43<<2, apply_T5852)  // BB(SII) = lambda xyz . xx(yz)
-DECLARE_OPCODE(T3445,      0x45<<2, apply_T3445)  // SC = lambda xyz . yz(xy)
-DECLARE_OPCODE(T185,       0x47<<1, apply_T185)   // SSK = SCI = lambda xy . xyx
-DECLARE_OPCODE(T8576,      0x49<<3, apply_T8576)  // S(KK)(S(KS)T) = lambda xyzw . wx(zw)
-DECLARE_OPCODE(T29,        0x4B,    apply_T29)    // SI(KK) = TK = lambda x . xK
-DECLARE_OPCODE(T203117,    0x4D<<3, apply_T203117)// BS(S(KK)(S(KS)T)) = lambda xyzw . wx(yzw)
-DECLARE_OPCODE(T339,       0x4F<<1, apply_T339)   // S(SII) = lambda xy . yy(xy)
-DECLARE_OPCODE(T329,       0x51<<1, apply_T329)   // C(T(KI)) = lambda xy . y(KI)x
-DECLARE_OPCODE(T3157,      0x53<<3, apply_T3157)  // B(BK) = lambda xyzw . xyz
-DECLARE_OPCODE(T15578,     0x55<<2, apply_T15578) // B(C(T(KI))) = lambda xyz . z(KI)(xy)
-DECLARE_OPCODE(T20,        0x57,    apply_T20)    // S(SII)I = lambda x . xxx
-DECLARE_OPCODE(T26787,     0x59<<2, apply_T26787) // S(S(KS)T) = lambda xyz . zy(xyz)
-DECLARE_OPCODE(T46377,     0x5B<<2, apply_T46377) // S(BB(SII)) = lambda xyz . yy(xyz)
-DECLARE_OPCODE(T103,       0x5D,    apply_T103)   // S(SII)(K(KI)) = lambda x . xx(KI)
-DECLARE_OPCODE(T155,       0x5F,    apply_T155)   // S(SII)(KK) = lambda x . xxK
-DECLARE_OPCODE(T320,       0x61<<2, apply_T320)   // Q = CB = lambda xyz . y(xz)
-DECLARE_OPCODE(T25104,     0x63<<3, apply_T25104) // B(CB) = lambda xyzw . z(xyw)
-DECLARE_OPCODE(T8695,      0x65<<3, apply_T8695)  // BKS = lambda xyzw . xw(zw)
-DECLARE_OPCODE(T511,       0x67<<2, apply_T511)   // S(BK) = lambda xyz . y(xy)
-DECLARE_OPCODE(T3397,      0x69<<2, apply_T3397)  // SV = lambda xyz . zy(xy)
-DECLARE_OPCODE(T530,       0x6B<<1, apply_T530)   // C(TK) = lambda x y . yKx
-DECLARE_OPCODE(T336,       0x6D<<1, apply_T336)   // S(SSK) = lambda xy . y(xy)y
-DECLARE_OPCODE(T8,         0x6F<<2, apply_T8)     // BKK = lambda xyz . x
-DECLARE_OPCODE(T12076,     0x71<<1, apply_T12076) // 4 = SII(SBI) = lambda xy . x(x(x(xy)))
-DECLARE_OPCODE(T4056,      0x73<<1, apply_T4056)  // S(SI) = lambda xy . xy(y(xy))
-DECLARE_OPCODE(T44556,     0x75<<2, apply_T44556) // S(KS)(SII) = BS(SII) = lambda xyz . xxz(yz)
-DECLARE_OPCODE(T25996,     0x77<<2, apply_T25996) // C(BS(SII)) = lambda xyz . yyz(xz)
-DECLARE_OPCODE(T64,        0x79<<1, apply_T64)    // L = CB(SII) = lambda xy . x(yy)
-DECLARE_OPCODE(Y,          0x7B,    apply_Y)      // Y=SSI(CB(SII)): Yx = x(Yx), no normal form
-DECLARE_OPCODE(T25323,     0x7D<<3, apply_T25323) // B1 = BBB = lambda xyzw . x(yzw)
-DECLARE_OPCODE(T25242,     0x7F<<3, apply_T25242) // C(BBB) = lambda xyzw . y(xzw)
-DECLARE_OPCODE(T323,       0x81<<2, apply_T323)   // Q1 = BCB = C(BBB)T = lambda xyz . x(zy)
-DECLARE_OPCODE(T1982,      0x83<<3, apply_T1982)  // B(BK)(BCB) = lambda xyzw . x(wy)
-DECLARE_OPCODE(T24,        0x85<<3, apply_T24)    // BK(BKK) = lambda xyzw . x
-DECLARE_OPCODE(T584,       0x87<<1, apply_T584)   // U = B(SI)(SII) = lambda xy . y(xxy)
-DECLARE_OPCODE(T41988,     0x89<<3, apply_T41988) // BK(BB(SII)) = lambda xyzw . xx(zw)
-DECLARE_OPCODE(T297,       0x8B<<2, apply_T297)   // F = CV = lambda xyz . zyx
-DECLARE_OPCODE(T10,        0x8D,    apply_T10)    // TI = lambda x . xI
-DECLARE_OPCODE(T95,        0x8F<<1, apply_T95)    // BT(SII) = lambda xy . y(xx)
-DECLARE_OPCODE(T9,         0x91<<1, NO_APPLY)     // K(SII) = lambda xy . yy
-DECLARE_OPCODE(T4212,      0x93<<1, apply_T4212)  // S(CB(SII)) = lambda xy . y(xy(xy))
-DECLARE_OPCODE(T78,        0x95<<3, NO_APPLY)     // K(S(KK)) = lambda xyzw . yz
-DECLARE_OPCODE(T198,       0x97<<2, NO_APPLY)     // K(SBI) = lambda xyz . y(yz)
-DECLARE_OPCODE(T7,         0x99<<3, NO_APPLY)     // K(K(KI)) = lambda xyzw . w
-DECLARE_OPCODE(T11,        0x9B<<3, NO_APPLY)     // K(KK) = lambda xyzw . z
-DECLARE_OPCODE(T58,        0x9D<<1, apply_T58)    // lambda xy . xyy
-DECLARE_OPCODE(T24648,     0x9F<<3, apply_T24648) // lambda xyzw . xz(yw)
-DECLARE_OPCODE(T365,       0xA1<<1, apply_T365)   // lambda xy . y(y(xy))
+DECLARE_OPCODE(T12,        0x15<<1, apply_T12)    // T = lambda xy . yx
+DECLARE_OPCODE(T61,        0x17<<1, apply_T61)    // O = SI = lambda xy . y(xy)
+DECLARE_OPCODE(T2,         0x19<<1, NO_APPLY)     // KI = lambda xy . y
+DECLARE_OPCODE(T298,       0x1B<<2, apply_T298)   // V = lambda xyz . zxy
+DECLARE_OPCODE(T23988,     0x1D<<3, apply_T23988) // BC = lambda xyzw . xywz
+DECLARE_OPCODE(T4,         0x1F<<2, NO_APPLY)     // K(KI) = lambda xyz . z
+DECLARE_OPCODE(T21,        0x21,    apply_T21)    // O(K(KI)) = T(KI) = lambda x . x(KI)
+DECLARE_OPCODE(T6,         0x23<<2, NO_APPLY)     // KK = lambda xyz . y
+DECLARE_OPCODE(T55,        0x25<<2, apply_T55)    // S(KK) = BK = lambda xyz . xy
+DECLARE_OPCODE(T24652,     0x27<<3, apply_T24652) // BB = lambda xyzw . xy(zw)
+DECLARE_OPCODE(T24299,     0x29<<3, apply_T24299) // BBV = lambda xyzw . wx(yz)
+DECLARE_OPCODE(T24290,     0x2B<<3, apply_T24290) // C(BBV) = lambda xyzw . wy(xz)
+DECLARE_OPCODE(T5281,      0x2D<<3, NO_APPLY)     // KS = lambda xyzw . yw(zw)
+DECLARE_OPCODE(T200528,    0x2F<<3, apply_T200528)// S(KS) = BS = lambda xyzw . xyw(zw)
+DECLARE_OPCODE(T129,       0x31<<2, NO_APPLY)     // KO = lambda xyz . z(yz)
+DECLARE_OPCODE(T313,       0x33<<2, apply_T313)   // Q3 = BT = lambda xyz . z(xy)
+DECLARE_OPCODE(T2155,      0x35<<2, apply_T2155)  // S(KO) = BO = lambda xyz . z(xyz)
+DECLARE_OPCODE(T3627,      0x37<<2, apply_T3627)  // ++ = SB = lambda xyz . y(xyz)
+DECLARE_OPCODE(T5,         0x39,    apply_T5)     // M = SII = lambda x . xx
+DECLARE_OPCODE(T27176,     0x3B<<2, apply_T27176) // SS = lambda xyz . yz(xyz)
+DECLARE_OPCODE(T561,       0x3D<<1, apply_T561)   // M2 = SSI = B(SII) = lambda xy . xy(xy)
+DECLARE_OPCODE(T98,        0x3F<<1, apply_T98)    // 2 = SBI = lambda xy . x(xy)
+DECLARE_OPCODE(T2064,      0x41<<2, apply_T2064)  // S(KS)T = lambda xyz . zx(yz)
+DECLARE_OPCODE(T19,        0x43<<1, apply_T19)    // S(KK)(SII) = lambda xy . xx
+DECLARE_OPCODE(T5852,      0x45<<2, apply_T5852)  // BB(SII) = lambda xyz . xx(yz)
+DECLARE_OPCODE(T3445,      0x47<<2, apply_T3445)  // SC = lambda xyz . yz(xy)
+DECLARE_OPCODE(T185,       0x49<<1, apply_T185)   // SSK = SCI = lambda xy . xyx
+DECLARE_OPCODE(T8576,      0x4B<<3, apply_T8576)  // S(KK)(S(KS)T) = lambda xyzw . wx(zw)
+DECLARE_OPCODE(T29,        0x4D,    apply_T29)    // SI(KK) = TK = lambda x . xK
+DECLARE_OPCODE(T203117,    0x4F<<3, apply_T203117)// BS(S(KK)(S(KS)T)) = lambda xyzw . wx(yzw)
+DECLARE_OPCODE(T339,       0x51<<1, apply_T339)   // S(SII) = lambda xy . yy(xy)
+DECLARE_OPCODE(T329,       0x53<<1, apply_T329)   // C(T(KI)) = lambda xy . y(KI)x
+DECLARE_OPCODE(T3157,      0x55<<3, apply_T3157)  // B(BK) = lambda xyzw . xyz
+DECLARE_OPCODE(T15578,     0x57<<2, apply_T15578) // B(C(T(KI))) = lambda xyz . z(KI)(xy)
+DECLARE_OPCODE(T20,        0x59,    apply_T20)    // S(SII)I = lambda x . xxx
+DECLARE_OPCODE(T26787,     0x5B<<2, apply_T26787) // S(S(KS)T) = lambda xyz . zy(xyz)
+DECLARE_OPCODE(T46377,     0x5D<<2, apply_T46377) // S(BB(SII)) = lambda xyz . yy(xyz)
+DECLARE_OPCODE(T103,       0x5F,    apply_T103)   // S(SII)(K(KI)) = lambda x . xx(KI)
+DECLARE_OPCODE(T155,       0x61,    apply_T155)   // S(SII)(KK) = lambda x . xxK
+DECLARE_OPCODE(T320,       0x63<<2, apply_T320)   // Q = CB = lambda xyz . y(xz)
+DECLARE_OPCODE(T25104,     0x65<<3, apply_T25104) // B(CB) = lambda xyzw . z(xyw)
+DECLARE_OPCODE(T8695,      0x67<<3, apply_T8695)  // BKS = lambda xyzw . xw(zw)
+DECLARE_OPCODE(T511,       0x69<<2, apply_T511)   // S(BK) = lambda xyz . y(xy)
+DECLARE_OPCODE(T3397,      0x6B<<2, apply_T3397)  // SV = lambda xyz . zy(xy)
+DECLARE_OPCODE(T530,       0x6D<<1, apply_T530)   // C(TK) = lambda x y . yKx
+DECLARE_OPCODE(T336,       0x6F<<1, apply_T336)   // S(SSK) = lambda xy . y(xy)y
+DECLARE_OPCODE(T8,         0x71<<2, apply_T8)     // BKK = lambda xyz . x
+DECLARE_OPCODE(T12076,     0x73<<1, apply_T12076) // 4 = SII(SBI) = lambda xy . x(x(x(xy)))
+DECLARE_OPCODE(T4056,      0x75<<1, apply_T4056)  // S(SI) = lambda xy . xy(y(xy))
+DECLARE_OPCODE(T44556,     0x77<<2, apply_T44556) // S(KS)(SII) = BS(SII) = lambda xyz . xxz(yz)
+DECLARE_OPCODE(T25996,     0x79<<2, apply_T25996) // C(BS(SII)) = lambda xyz . yyz(xz)
+DECLARE_OPCODE(T64,        0x7B<<1, apply_T64)    // L = CB(SII) = lambda xy . x(yy)
+DECLARE_OPCODE(Y,          0x7D,    apply_Y)      // Y=SSI(CB(SII)): Yx = x(Yx), no normal form
+DECLARE_OPCODE(T25323,     0x7F<<3, apply_T25323) // B1 = BBB = lambda xyzw . x(yzw)
+DECLARE_OPCODE(T25242,     0x81<<3, apply_T25242) // C(BBB) = lambda xyzw . y(xzw)
+DECLARE_OPCODE(T323,       0x83<<2, apply_T323)   // Q1 = BCB = C(BBB)T = lambda xyz . x(zy)
+DECLARE_OPCODE(T1982,      0x85<<3, apply_T1982)  // B(BK)(BCB) = lambda xyzw . x(wy)
+DECLARE_OPCODE(T24,        0x87<<3, apply_T24)    // BK(BKK) = lambda xyzw . x
+DECLARE_OPCODE(T584,       0x89<<1, apply_T584)   // U = B(SI)(SII) = lambda xy . y(xxy)
+DECLARE_OPCODE(T41988,     0x8B<<3, apply_T41988) // BK(BB(SII)) = lambda xyzw . xx(zw)
+DECLARE_OPCODE(T297,       0x8D<<2, apply_T297)   // F = CV = lambda xyz . zyx
+DECLARE_OPCODE(T10,        0x8F,    apply_T10)    // TI = lambda x . xI
+DECLARE_OPCODE(T95,        0x91<<1, apply_T95)    // BT(SII) = lambda xy . y(xx)
+DECLARE_OPCODE(T9,         0x93<<1, NO_APPLY)     // K(SII) = lambda xy . yy
+DECLARE_OPCODE(T4212,      0x95<<1, apply_T4212)  // S(CB(SII)) = lambda xy . y(xy(xy))
+DECLARE_OPCODE(T78,        0x97<<3, NO_APPLY)     // K(S(KK)) = lambda xyzw . yz
+DECLARE_OPCODE(T198,       0x99<<2, NO_APPLY)     // K(SBI) = lambda xyz . y(yz)
+DECLARE_OPCODE(T7,         0x9B<<3, NO_APPLY)     // K(K(KI)) = lambda xyzw . w
+DECLARE_OPCODE(T11,        0x9D<<3, NO_APPLY)     // K(KK) = lambda xyzw . z
+DECLARE_OPCODE(T58,        0x9F<<1, apply_T58)    // lambda xy . xyy
+DECLARE_OPCODE(T24648,     0xA1<<3, apply_T24648) // lambda xyzw . xz(yw)
+DECLARE_OPCODE(T365,       0xA3<<1, apply_T365)   // lambda xy . y(y(xy))
+DECLARE_OPCODE(T312,       0xA5<<2, apply_T312)   // Q4 = Q1T = lambda xyz . z(yx)
+DECLARE_OPCODE(T301,       0xA7<<2, apply_T301)   // R = JT = lambda xyz . yzx
+DECLARE_OPCODE(T23953,     0xA9<<3, apply_T23953) // JR = lambda xyzw . ywzx
+DECLARE_OPCODE(T24590,     0xAB<<3, apply_T24590) // Q1Q1 = lambda xyzw . yx(wz)
+DECLARE_OPCODE(T24443,     0xAD<<3, apply_T24443) // Q1R = lambda xyzw . zw(yx)
+
+// J T323 xyzw = Q1x(Q1zy)w = x(w(Q1zy)) = x(w(lambda u . Q1zyu)) = x(w(lambda u . z(uy))) 000000000111110011000011110011011110
+// T323 J xyzwv = J(yx)zwv = yxz(yxvw)
+// Q1(JR)xyzwv = JR(yx)zwv = zvw(yx)
 
 static inline int is_special(unsigned int opcode)
 {
@@ -177,6 +188,7 @@ static const apply_fn apply_functions[]=
     apply_S,
     apply_B,
     apply_C,
+    apply_J,
     apply_T12,
     apply_T61,
     apply_I,  // T2 = K I
@@ -249,6 +261,11 @@ static const apply_fn apply_functions[]=
     apply_T58,
     apply_T24648,
     apply_T365,
+    apply_T312,
+    apply_T301,
+    apply_T23953,
+    apply_T24590,
+    apply_T24443
 };
 
 #ifndef GC_THRESHOLD
@@ -404,6 +421,21 @@ static inline struct Node *new_lazyk_combinator(char ch)
         return NULL;
 }
 
+static inline struct Node *new_crazyj_combinator(char ch)
+{
+    ch=tolower(ch);
+    if(ch=='i' || ch=='I' || ch=='+')
+        return &I;
+    else if(ch=='j' || ch=='J' || ch=='-')
+        return &J;
+    else if(ch==',')
+        return &T323;
+    else if(ch=='.')
+        return &T12;
+    else
+        return NULL;
+}
+
 static inline struct Node *new_thechurch_combinator(char ch)
 {
     if(ch=='+')
@@ -482,11 +514,14 @@ static void apply_input(struct Node *a)
     switch(io_mode)
     {
     case IO_LAZYK:
+    case IO_CRAZYJ:
         {
             int code=fgetc(stdin);
             if(code<0 || code>255)
                 code=256;
 
+            if(io_mode==IO_CRAZYJ)
+                ++code;
 
             struct Node *left=new_application(&T298, new_numeral(code)); // T298 = T
             struct Node *right=new_input();
@@ -590,13 +625,13 @@ static void lazyk_fetch_output_char(struct Node *n)
     n=new_application(new_application(n, &ATOM_Z), &ATOM_X);
     reduce(n);
 
-    unsigned int code=0;
+    int code=(io_mode==IO_LAZYK)?0:-1; // Count from -1 for Crazy J, since it lacks ability to represent Church Zero
     while(n->opcode==OP_APPLY && n->right->opcode==OP_ATOM_Z && code<256+126)
     {
         ++code;
         n=n->left;
     }
-    if(n->opcode!=OP_ATOM_X)
+    if(code<0 || n->opcode!=OP_ATOM_X)
         code=256+126;
 
     if(code<256)
@@ -615,6 +650,7 @@ static void apply_output_cont(struct Node *a)
     switch(io_mode)
     {
     case IO_LAZYK:
+    case IO_CRAZYJ:
         {
             lazyk_fetch_output_char(a->right);
 
@@ -707,6 +743,14 @@ static void apply_B(struct Node *a)
 static void apply_C(struct Node *a)
 {
     replace_application(a, new_application(a->left->left->right, a->right), a->left->right);
+}
+
+static void apply_J(struct Node *a)
+{
+    replace_application(
+        a,
+        new_application(a->left->left->left->right, a->left->left->right),
+        new_application(new_application(a->left->left->left->right, a->right), a->left->right));
 }
 
 static void apply_T12(struct Node *a)
@@ -1184,6 +1228,48 @@ static void apply_T365(struct Node *a)
         new_application(a->right, new_application(a->left->right, a->right)));
 }
 
+static void apply_T312(struct Node *a)
+{
+    replace_application(
+        a,
+        a->right,
+        new_application(a->left->right, a->left->left->right));
+}
+
+static void apply_T301(struct Node *a)
+{
+    replace_application(
+        a,
+        new_application(a->left->right, a->right),
+        a->left->left->right);
+}
+
+static void apply_T23953(struct Node *a)
+{
+    replace_application(
+        a,
+        new_application(
+            new_application(a->left->left->right, a->right),
+            a->left->right),
+        a->left->left->left->right);
+}
+
+static void apply_T24590(struct Node *a)
+{
+    replace_application(
+        a,
+        new_application(a->left->left->right, a->left->left->left->right),
+        new_application(a->right, a->left->right));
+}
+
+static void apply_T24443(struct Node *a)
+{
+    replace_application(
+        a,
+        new_application(a->left->right, a->right),
+        new_application(a->left->left->right, a->left->left->left->right));
+}
+
 static struct Node *new_application_load(struct Node *left, struct Node *right)
 {
     // S(Kx) -> Bx
@@ -1322,6 +1408,13 @@ static struct Node *new_application_load(struct Node *left, struct Node *right)
         {OP_K,       OP_T4,     &T7},
         {OP_K,       OP_T6,     &T11},
         {OP_T6,      OP_T2,     &K},
+        {OP_J,       OP_I,      &T323},
+        {OP_J,       OP_T12,    &T301},
+        {OP_J,       OP_T301,   &T23953},
+        {OP_T323,    OP_I,      &T12},
+        {OP_T323,    OP_T12,    &T312},
+        {OP_T323,    OP_T323,   &T24590},
+        {OP_T323,    OP_T301,   &T24443},
     };
 
     for(unsigned int i=0; i<sizeof(rules)/sizeof(rules[0]); ++i)
@@ -1493,6 +1586,204 @@ err:
     error->ch=ch;
     free(op_stack);
     free(n_stack);
+    return NULL;
+}
+
+static struct Node *parse_crazyj_program(FILE *f, struct ParseErrorInfo *error)
+{
+    enum Syntax
+    {
+        Unknown,
+        Unlambda,
+        CC,
+        BFMimic
+    } syntax=Unknown;
+
+    unsigned int line=1;
+    unsigned int col=0;
+    int ignore_rest_of_line=0;
+
+    unsigned int op_stack_size=0;
+    unsigned int op_stack_cap=0;
+    struct Node **op_stack=NULL;
+
+    unsigned int n_stack_size=0;
+    unsigned int n_stack_cap=10;
+    unsigned int *n_stack=(unsigned int *)malloc(n_stack_cap*sizeof(unsigned int));
+    n_stack[n_stack_size++]=0;
+
+    unsigned int ltr_stack_size=0;
+    unsigned int ltr_stack_cap=0;
+    char *ltr_stack=(char *)malloc(ltr_stack_cap*sizeof(char));
+
+    char left_to_right=1;
+
+    int ch;
+    while((ch=fgetc(f))!=EOF)
+    {
+        if(ch=='\n')
+        {
+            ++line;
+            col=0;
+            ignore_rest_of_line=0;
+            continue;
+        }
+
+        ++col;
+        if(ignore_rest_of_line)
+            continue;
+
+        if(ch=='#')
+        {
+            ignore_rest_of_line=1;
+            continue;
+        }
+        if(isspace(ch))
+            continue;
+
+        if(
+            ((ch=='`' || ch=='i' || ch=='j') && (syntax!=Unlambda && syntax!=Unknown)) ||
+            ((ch=='(' || ch==')' || ch=='I' || ch=='J') && (syntax!=CC && syntax!=Unknown)) ||
+            ((ch=='[' || ch==']' || ch=='>' || ch=='<' || ch=='.' || ch==',' || ch=='+' || ch=='-') && (syntax!=BFMimic && syntax!=Unknown)))
+        {
+            error->message="Unexpected character";
+            goto err;
+        }
+
+        if(ch=='`' || ch=='(' || ch=='[')
+        {
+            syntax=(ch=='`')?Unlambda
+                  :(ch=='(')?CC
+                            :BFMimic;
+
+            if(n_stack_size>=n_stack_cap)
+            {
+                n_stack_cap+=10;
+                n_stack=(unsigned int *)realloc(n_stack, n_stack_cap*sizeof(unsigned int));
+                if(!n_stack)
+                    abort();
+            }
+            n_stack[n_stack_size++]=0;
+
+            if(syntax==BFMimic)
+            {
+                if(ltr_stack_size>=ltr_stack_cap)
+                {
+                    ltr_stack_cap+=10;
+                    ltr_stack=(char *)realloc(ltr_stack, ltr_stack_cap*sizeof(char));
+                    if(!ltr_stack)
+                        abort();
+                }
+                ltr_stack[ltr_stack_size++]=left_to_right;
+            }
+        }
+        else if(ch=='i' || ch=='j' || ch=='I' || ch=='J' || ch=='+' || ch=='-' || ch=='.' || ch==',')
+        {
+            syntax=(ch=='i' || ch=='j')?Unlambda
+                  :(ch=='I' || ch=='J')?CC
+                                       :BFMimic;
+
+            if(op_stack_size>=op_stack_cap)
+            {
+                op_stack_cap+=20;
+                op_stack=(struct Node **)realloc(op_stack, op_stack_cap*sizeof(struct Node *));
+                if(!op_stack)
+                    abort();
+            }
+            op_stack[op_stack_size++]=new_crazyj_combinator(ch);
+            ++n_stack[n_stack_size-1];
+        }
+        else if(ch==')' || ch==']')
+        {
+            syntax=(ch==')')?CC
+                            :BFMimic;
+
+            if(n_stack_size==1)
+            {
+                error->message="Unbalanced";
+                goto err;
+            }
+
+            if(n_stack[n_stack_size-1]==0)
+            {
+                error->message="Unexpected character";
+                goto err;
+            }
+
+            --n_stack_size;
+            ++n_stack[n_stack_size-1];
+
+            if(syntax==BFMimic)
+            {
+                left_to_right=ltr_stack[--ltr_stack_size];
+            }
+        }
+        else if(ch=='>' || ch=='<')
+        {
+            syntax=BFMimic;
+            left_to_right=(ch=='>');
+        }
+        else
+        {
+            error->message="Unexpected character";
+            goto err;
+        }
+
+        while(n_stack_size>=1 && n_stack[n_stack_size-1]==2)
+        {
+            struct Node *left=op_stack[op_stack_size-2];
+            struct Node *right=op_stack[op_stack_size-1];
+
+            --op_stack_size;
+            op_stack[op_stack_size-1]=left_to_right?new_application_load(left, right)
+                                                   :new_application_load(right, left);
+
+            if(syntax==CC || syntax==BFMimic)
+            {
+                --n_stack[n_stack_size-1];
+            }
+            else
+            {
+                if(n_stack_size==1)
+                {
+                    error->message="EOF expected instead of";
+                    goto err;
+                }
+                --n_stack_size;
+                ++n_stack[n_stack_size-1];
+            }
+        }
+    }
+
+    struct Node *res;
+    if(n_stack_size==1 && n_stack[0]==0)
+    {
+        res=new_crazyj_combinator('i');
+    }
+    else if(n_stack_size>1)
+    {
+        ++col;
+        error->message="Unexpected";
+        goto err;
+    }
+    else
+    {
+        res=op_stack[0];
+    }
+
+    free(op_stack);
+    free(n_stack);
+    free(ltr_stack);
+
+    return res;
+
+err:
+    error->line=line;
+    error->col=col;
+    error->ch=ch;
+    free(op_stack);
+    free(n_stack);
+    free(ltr_stack);
     return NULL;
 }
 
@@ -2059,6 +2350,12 @@ static inline int is_lazyk_source(const char *filename)
     return p && strcmp(p, ".lazy")==0;
 }
 
+static inline int is_crazyj_source(const char *filename)
+{
+    char *p=strrchr(filename, '.');
+    return p && strcmp(p, ".crazy")==0;
+}
+
 static inline int is_thechurch_source(const char *filename)
 {
     char *p=strrchr(filename, '.');
@@ -2097,8 +2394,8 @@ static struct Node *dump(struct Node *p)
 
         static const char *s[]=
         {
-                            "",       "",       "",       "",      "I",      "K",       "S",
-                 "B",      "C",    "T12",    "T61",     "T2",   "T298", "T23988",      "T4",
+                  "",       "",       "",       "",      "I",      "K",       "S",      "B",
+                 "C",      "J",    "T12",    "T61",     "T2",   "T298", "T23988",      "T4",
                "T21",     "T6",    "T55", "T24652", "T24299", "T24290",  "T5281", "T200528",
               "T129",   "T313",  "T2155",  "T3627",     "T5", "T27176",   "T561",     "T98",
              "T2064",    "T19",  "T5852",  "T3445",   "T185",  "T8576",    "T29", "T203117",
@@ -2107,7 +2404,7 @@ static struct Node *dump(struct Node *p)
                 "T8", "T12076",  "T4056", "T44556", "T25996",    "T64",      "Y",  "T25323",
             "T25242",   "T323",  "T1982",    "T24",   "T584", "T41988",   "T297",     "T10",
                "T95",     "T9",  "T4212",    "T78",   "T198",     "T7",    "T11",     "T58",
-            "T24648",   "T365",
+            "T24648",   "T365",   "T312",   "T301", "T23953", "T24590", "T24443",
         };
         fprintf(stderr, "%s", s[opcode]);
     }
@@ -2123,13 +2420,15 @@ int main(int argc, char *argv[])
 
         if(is_lazyk_source(argv[i]) || is_thechurch_source(argv[i]))
             file_io_mode=IO_LAZYK;
+        else if(is_crazyj_source(argv[i]))
+            file_io_mode=IO_CRAZYJ;
         else if(is_blc_source(argv[i]))
             file_io_mode=IO_BLC;
         else if(is_blc8_source(argv[i]))
             file_io_mode=IO_BLC8;
         else
         {
-            fprintf(stderr, "Can't determine program source language (Lazy K, BLC, BLC8): `%s'\n", argv[i]);
+            fprintf(stderr, "Can't determine program source language (Lazy K, Crazy J, BLC, BLC8, The Church): `%s'\n", argv[i]);
             return 1;
         }
         if(io_mode!=IO_AUTO && file_io_mode!=io_mode)
@@ -2161,6 +2460,10 @@ int main(int argc, char *argv[])
         if(is_lazyk_source(argv[i]))
         {
             node=parse_lazyk_program(f, &error);
+        }
+        else if(is_crazyj_source(argv[i]))
+        {
+            node=parse_crazyj_program(f, &error);
         }
         else if(is_thechurch_source(argv[i]))
         {
