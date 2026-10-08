@@ -2211,7 +2211,26 @@ static struct Node *parse_blc_program(FILE *f, struct ParseErrorInfo *error)
     unsigned int line=1;
     unsigned int col=0;
 
-    return parse_blc_subprogram(f, 0, &line, &col, error);
+    struct Node *prog=parse_blc_subprogram(f, 0, &line, &col, error);
+    if(!prog)
+        return prog;
+
+    // The remaining 0 and 1 bits are passed as input:
+
+    int ch;
+    while((ch=fgetc(f))!=EOF)
+    {
+        struct Node *bit=NULL;
+        if(ch=='0')
+            bit=&K;
+        else if(ch=='1')
+            bit=&T2;
+
+        if(bit)
+            prog=new_application_load(new_application_load(&B, prog), new_application_load(&T298, bit));
+    }
+
+    return prog;
 }
 
 struct BLC8BitBuffer
