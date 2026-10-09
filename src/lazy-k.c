@@ -2320,7 +2320,25 @@ static struct Node *parse_blc8_program(FILE *f)
     struct BLC8BitBuffer buf;
     init_blc8_buffer(&buf, f);
 
-    return parse_blc8_subprogram(&buf, 0);
+    struct Node *prog=parse_blc8_subprogram(&buf, 0);
+    if(!prog)
+        return NULL;
+
+    // The rest of BLC8BitBuffer is padding between code and data. Now read the data section
+    int ch;
+    while((ch=fgetc(f))!=EOF)
+    {
+        struct Node *byte=&T2;
+
+        for(int i=0; i<8; ++i, ch>>=1)
+        {
+            byte=new_application_load(new_application_load(&T298, (ch&1) ? &T2 : &K), byte);
+        }
+
+        prog=new_application_load(new_application_load(&B, prog), new_application_load(&T298, byte));
+    }
+
+    return prog;
 }
 
 static void reduce(struct Node *p)
@@ -2528,7 +2546,7 @@ int main(int argc, char *argv[])
         }
         else if(is_blc8_source(argv[i]))
         {
-            node=dump(parse_blc8_program(f));
+            node=parse_blc8_program(f);
         }
 
         fclose(f);
